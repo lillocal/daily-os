@@ -307,12 +307,14 @@ const morningSteps = [
     {
         id: 'mood', type: 'scale',
         question: 'How\'s your mood right now?',
-        sub: '1 = rough start, 5 = feeling solid'
+        sub: '1 = rough start, 5 = feeling solid',
+        noteId: 'mood_note', notePlaceholder: 'What\'s driving that? (optional)'
     },
     {
         id: 'energy', type: 'scale',
         question: 'What\'s your energy like?',
-        sub: '1 = running on empty, 5 = firing on all cylinders'
+        sub: '1 = flat, 5 = firing — quality matters too, not just level',
+        noteId: 'energy_note', notePlaceholder: 'e.g. hyperfocused but on the wrong thing, anxious buzz, calm and steady... (optional)'
     },
     {
         id: 'work_intention', type: 'text',
@@ -332,12 +334,24 @@ const afternoonSteps = [
     {
         id: 'mood', type: 'scale',
         question: 'Mood check. How are you actually feeling?',
-        sub: '1 = rough, 5 = solid'
+        sub: '1 = rough, 5 = solid',
+        noteId: 'mood_note', notePlaceholder: 'What\'s the flavour of it? (optional)'
     },
     {
         id: 'energy', type: 'scale',
         question: 'Energy right now?',
-        sub: '1 = running on empty, 5 = still going strong'
+        sub: '1 = flat, 5 = still going — what kind of energy is it?',
+        noteId: 'energy_note', notePlaceholder: 'e.g. wired, scattered, calm, crashing... (optional)'
+    },
+    {
+        id: 'focus_quality', type: 'options',
+        question: 'How well was your energy directed today?',
+        options: [
+            { value: 'on_target',   icon: '→', label: 'On target',        sub: 'Energy went where it should' },
+            { value: 'scattered',   icon: '~', label: 'Scattered',         sub: 'Busy but not focused on the right things' },
+            { value: 'hyperfocused',icon: '⬤', label: 'Hyperfocused',     sub: 'Deep in something — not necessarily the priority' },
+            { value: 'checked_out', icon: '—', label: 'Checked out',       sub: 'Couldn\'t get traction at all' },
+        ]
     },
     {
         id: 'body_awareness', type: 'options',
@@ -531,10 +545,17 @@ function buildStep(step, index, total) {
 
     if (step.type === 'scale') {
         const nextAction = isLast ? 'submitCheckIn()' : 'nextStep()';
+        const noteField = step.noteId ? `
+            <div id="scale-note-${index}" style="display:none; margin-top:14px;">
+                <input type="text" class="text-input" style="margin-top:0;"
+                    placeholder="${step.notePlaceholder || 'Add context... (optional)'}"
+                    oninput="checkInData['${step.noteId}']=this.value.trim()||null">
+            </div>` : '';
         inputHtml = `
             <div class="scale-buttons">
                 ${[1,2,3,4,5].map(n => `<button class="scale-btn" onclick="selectScale('${step.id}',${n},this,${index},${isLast})">${n}</button>`).join('')}
             </div>
+            ${noteField}
             <div class="nav-row" id="nbtn-${index}" style="display:none;">
                 <button class="btn btn-primary" onclick="${nextAction}">${isLast ? 'Submit check-in' : 'Continue'}</button>
             </div>
@@ -609,6 +630,13 @@ function selectScale(field, val, btn, stepIdx, isLast) {
     checkInData[field] = val;
     btn.closest('.scale-buttons').querySelectorAll('.scale-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
+    // Show note field if present
+    const noteEl = document.getElementById(`scale-note-${stepIdx}`);
+    if (noteEl) {
+        noteEl.style.display = 'block';
+        const inp = noteEl.querySelector('input');
+        if (inp) setTimeout(() => inp.focus(), 120);
+    }
     const nb = document.getElementById(`nbtn-${stepIdx}`);
     if (nb) nb.style.display = 'flex';
 }
@@ -932,6 +960,7 @@ function buildLogEntry(e) {
     const bLabels = { checked_in: 'Checked in', drifted: 'Drifted', autopilot: 'Autopilot' };
     const mLabels = { yes: '↑ Movement', a_bit: '→ A bit', no: '— No movement' };
     const wLabels = { done: '✓ Done', in_progress: '~ In progress', didnt_happen: '— Didn\'t happen' };
+    const fLabels = { on_target: '→ On target', scattered: '~ Scattered', hyperfocused: '⬤ Hyperfocused', checked_out: '— Checked out' };
     return `
         <div class="log-entry">
             <div class="log-entry-header">
@@ -942,6 +971,9 @@ function buildLogEntry(e) {
                 <div class="me-stat"><span>Mood</span><strong style="color:var(--accent);">${e.mood}</strong></div>
                 <div class="me-stat"><span>Energy</span><strong style="color:var(--positive);">${e.energy}</strong></div>
             </div>
+            ${e.mood_note ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;font-style:italic;">"${e.mood_note}"</div>` : ''}
+            ${e.energy_note ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:6px;font-style:italic;">"${e.energy_note}"</div>` : ''}
+            ${e.focus_quality ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;">${fLabels[e.focus_quality]||e.focus_quality}</div>` : ''}
             ${e.body_awareness ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;">${bLabels[e.body_awareness]||e.body_awareness}</div>` : ''}
             ${e.movement ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;">${mLabels[e.movement]||e.movement}</div>` : ''}
             ${e.work_status ? `<div style="font-size:12px;color:${e.work_status==='done'?'var(--positive)':'var(--text-2)'};margin-bottom:3px;">${wLabels[e.work_status]||e.work_status}</div>` : ''}
