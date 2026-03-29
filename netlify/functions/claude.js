@@ -15,7 +15,7 @@ exports.handler = async (event) => {
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-20250514',
-                max_tokens: 200,
+                max_tokens: body.max_tokens || 200,
                 system: body.system,
                 messages: body.messages
             })
@@ -25,7 +25,10 @@ exports.handler = async (event) => {
 
         return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             body: JSON.stringify(data)
         };
     } catch (err) {
