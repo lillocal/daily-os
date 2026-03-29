@@ -425,6 +425,7 @@
 const APP_VERSION = '1.0.0';
 let sbClient = null;
 let entries = [];
+let aboutMe = '';
 let currentView = 'checkin';
 let checkInStep = 0;
 let checkInType = 'morning';
@@ -441,6 +442,49 @@ const morningSteps = [
         question: 'What\'s your cycle day today?',
         sub: 'Quick check on Flo. Skip if you\'d rather not.',
         placeholder: 'Day number (1–35)', skippable: true
+    },
+    {
+        id: 'sleep_score', type: 'number',
+        question: 'Sleep score?',
+        sub: 'From your Garmin morning report.',
+        placeholder: '0–100', skippable: true
+    },
+    {
+        id: 'body_battery', type: 'number',
+        question: 'Body battery?',
+        sub: 'Your Garmin charge level right now.',
+        placeholder: '0–100', skippable: true
+    },
+    {
+        id: 'hrv_status', type: 'options',
+        question: 'HRV status?',
+        options: [
+            { value: 'poor',     icon: '▼', label: 'Poor',     sub: 'Needs attention' },
+            { value: 'low',      icon: '↓', label: 'Low',      sub: 'Below baseline' },
+            { value: 'balanced', icon: '→', label: 'Balanced', sub: 'On track' },
+            { value: 'good',     icon: '↑', label: 'Good',     sub: 'Above baseline' },
+        ], skippable: true
+    },
+    {
+        id: 'recovery_advisory', type: 'options',
+        question: 'Recovery advisory?',
+        options: [
+            { value: 'recover',  icon: '●', label: 'Recover',  sub: 'Take it easy today' },
+            { value: 'maintain', icon: '→', label: 'Maintain', sub: 'Keep your usual pace' },
+            { value: 'push',     icon: '↑', label: 'Push',     sub: 'Good day to go harder' },
+        ], skippable: true
+    },
+    {
+        id: 'steps_yesterday', type: 'number',
+        question: 'Yesterday\'s steps?',
+        sub: 'From your Garmin.',
+        placeholder: 'e.g. 8500', skippable: true
+    },
+    {
+        id: 'weight', type: 'number',
+        question: 'Weight this morning?',
+        sub: 'Optional. Weigh in before food or drink for consistency.',
+        placeholder: 'kg (e.g. 72.4)', skippable: true
     },
     {
         id: 'mood', type: 'scale',
@@ -638,23 +682,59 @@ function renderCheckIn() {
     const alreadyDone = checkInType === 'morning' ? todayEntries.morning : todayEntries.afternoon;
 
     if (alreadyDone) {
-        // Both done?
         const bothDone = todayEntries.morning && todayEntries.afternoon;
+        const m = todayEntries.morning;
+        const todayQuicklogs = entries.filter(e => (e.entry_date || e.created_at?.split('T')[0]) === todayStr() && e.type === 'quicklog');
+
+        // Build today's Garmin snapshot if morning is done
+        const garminSnap = m ? `
+            ${(m.sleep_score || m.body_battery || m.steps_yesterday || m.weight) ? `
+            <div class="card" style="margin-bottom:12px;">
+                <h3 style="margin-bottom:12px;">Today\'s stats</h3>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                    ${m.sleep_score ? `<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:#9b7cdb;">${m.sleep_score}</div><div class="metric-label">Sleep</div></div>` : ''}
+                    ${m.body_battery ? `<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;">${m.body_battery}</div><div class="metric-label">Battery</div></div>` : ''}
+                    ${m.steps_yesterday ? `<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:22px;color:var(--text-2);">${Number(m.steps_yesterday).toLocaleString()}</div><div class="metric-label">Steps</div></div>` : ''}
+                    ${m.weight ? `<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:var(--positive);">${m.weight}</div><div class="metric-label">Weight kg</div></div>` : ''}
+                </div>
+                ${m.hrv_status || m.recovery_advisory ? `<div style="margin-top:10px;font-size:13px;color:var(--text-2);">
+                    ${m.hrv_status ? `HRV: <strong style="color:var(--text);">${m.hrv_status}</strong>` : ''}
+                    ${m.hrv_status && m.recovery_advisory ? ' &nbsp;·&nbsp; ' : ''}
+                    ${m.recovery_advisory ? `Advisory: <strong style="color:var(--text);">${m.recovery_advisory}</strong>` : ''}
+                </div>` : ''}
+            </div>` : ''}
+        ` : '';
+
         el.innerHTML = `
-            <div style="margin-bottom: 24px;">
+            <div style="margin-bottom: 20px;">
                 <div class="checkin-badge">✓ ${checkInType.toUpperCase()} DONE</div>
                 <h1>${greeting}</h1>
                 <p style="color:var(--text-2);font-size:14px;margin-top:5px;">${dayStr}</p>
             </div>
-            <div class="card done-card">
-                <span class="done-icon pop">${bothDone ? '🌟' : '🌿'}</span>
-                <div class="done-title">${bothDone ? 'Both check-ins done.' : checkInType === 'morning' ? 'Morning check-in done.' : 'Afternoon check-in done.'}</div>
-                <div class="done-sub">${bothDone ? 'That\'s today sorted. See you tomorrow.' : checkInType === 'morning' ? 'Come back around 4pm for your afternoon check-in.' : 'Good on you.'}</div>
+
+            ${garminSnap}
+
+            <div class="card card-accent" style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-size:13px;color:var(--text-2);margin-bottom:6px;">${bothDone ? 'Both check-ins logged' : checkInType === 'morning' ? 'Morning logged — back at 4pm' : 'All done for today'}</div>
+                        ${m ? `<div style="display:flex;gap:16px;">
+                            <div style="font-size:12px;color:var(--text-2);">Mood <strong style="color:var(--accent);font-size:16px;">${m.mood || '–'}</strong></div>
+                            <div style="font-size:12px;color:var(--text-2);">Energy <strong style="color:var(--positive);font-size:16px;">${m.energy || '–'}</strong></div>
+                        </div>` : ''}
+                    </div>
+                    <span style="font-size:32px;">${bothDone ? '🌟' : '🌿'}</span>
+                </div>
             </div>
-            ${buildTodaySummary()}
-            <div style="margin-top:16px;display:flex;gap:8px;">
-                <button class="btn btn-ghost btn-sm" onclick="navigate('insights')">View patterns →</button>
-                ${!bothDone ? `<button class="btn btn-ghost btn-sm" onclick="forceCheckIn('${checkInType === 'morning' ? 'afternoon' : 'morning'}')">Log ${checkInType === 'morning' ? 'afternoon' : 'morning'}</button>` : ''}
+
+            ${todayQuicklogs.length ? `
+            <div class="section-header"><h3>Quick logs today (${todayQuicklogs.length})</h3></div>
+            ${todayQuicklogs.map(buildLogEntry).join('')}` : ''}
+
+            <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="navigate('insights')">Patterns →</button>
+                <button class="btn btn-ghost btn-sm" onclick="navigate('log')">Full log →</button>
+                ${!bothDone ? `<button class="btn btn-ghost btn-sm" onclick="forceCheckIn('${checkInType === 'morning' ? 'afternoon' : 'morning'}')">Log ${checkInType === 'morning' ? 'afternoon' : 'morning'} →</button>` : ''}
             </div>
         `;
         return;
@@ -710,6 +790,7 @@ function buildStep(step, index, total) {
             </div>
             <div class="nav-row" id="nbtn-${index}" style="display:none;">
                 <button class="btn btn-primary" onclick="${isLast ? 'submitCheckIn()' : 'nextStep()'}">${isLast ? 'Submit check-in' : 'Continue'}</button>
+                ${step.skippable ? `<button class="btn btn-ghost" onclick="${isLast ? 'submitCheckIn()' : 'skipAndNext()}">Skip</button>` : ''}
             </div>
         `;
     } else if (step.type === 'number') {
@@ -870,6 +951,12 @@ function renderComplete(d) {
                     <div style="font-size:13px;font-weight:600;color:${phase.color};line-height:1;padding-top:8px;">${phase.name}</div>
                 </div>` : ''}
             </div>
+            ${(d.sleep_score || d.body_battery || d.steps_yesterday) ? `
+            <div style="display:flex;gap:20px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+                ${d.sleep_score ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Sleep</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:#9b7cdb;line-height:1;">${d.sleep_score}</div></div>` : ''}
+                ${d.body_battery ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Battery</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--accent);line-height:1;">${d.body_battery}</div></div>` : ''}
+                ${d.steps_yesterday ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Steps</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--text-2);line-height:1;">${Number(d.steps_yesterday).toLocaleString()}</div></div>` : ''}
+            </div>` : ''}
             ${d.work_intention ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;">Work intention</div><div style="font-size:14px;font-style:italic;">"${d.work_intention}"</div>` : ''}
             ${d.body_awareness ? `<div style="font-size:13px;color:var(--text-2);margin-top:10px;">${bodyLabels[d.body_awareness]||d.body_awareness}</div>` : ''}
             ${d.movement ? `<div style="font-size:13px;color:var(--text-2);margin-top:4px;">${moveLabels[d.movement]||d.movement}</div>` : ''}
@@ -943,7 +1030,14 @@ function renderInsights() {
 
     el.innerHTML = `
         <h2 style="margin-bottom:4px;">Your patterns</h2>
-        <p style="color:var(--text-2);font-size:13px;margin-bottom:20px;">${entries.length} entries logged</p>
+        <p style="color:var(--text-2);font-size:13px;margin-bottom:16px;">${entries.length} entries logged</p>
+
+        <div class="card" style="margin-bottom:20px;">
+            <h3 style="margin-bottom:10px;">Weekly read</h3>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">Claude reads your last 7 days — numbers, notes, all of it — and tells you what it actually sees.</p>
+            <button class="btn btn-primary" onclick="runWeeklySynthesis()" style="width:auto;padding:12px 20px;">Generate weekly read</button>
+            <div id="synthesis-result"></div>
+        </div>
 
         ${phase ? `
         <div class="phase-card" style="--phase-glow:${phase.glow}; margin-bottom:16px;">
@@ -1099,6 +1193,7 @@ function renderLog() {
 
 function buildLogEntry(e) {
     // Quick log entries
+    const entryId = e.id || '';
     if (e.type === 'quicklog') {
         const lines = (e.note||'').split('\n');
         const bubbles = lines.map(l => {
@@ -1115,6 +1210,7 @@ function buildLogEntry(e) {
             <div class="log-entry">
                 <div class="log-entry-header">
                     <span class="type-badge" style="background:rgba(155,124,219,0.15);color:#9b7cdb;">⚡ Quick log</span>
+                    <button onclick="deleteEntry('${entryId}')" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Delete">✕</button>
                 </div>
                 ${bubbles}
             </div>`;
@@ -1127,8 +1223,19 @@ function buildLogEntry(e) {
         <div class="log-entry">
             <div class="log-entry-header">
                 <span class="type-badge ${e.type}">${e.type === 'morning' ? '☀ Morning' : '🌤 Afternoon'}</span>
-                ${e.cycle_day ? `<span style="font-size:12px;color:var(--text-2);">Day ${e.cycle_day}</span>` : ''}
+                <div style="display:flex;align-items:center;gap:10px;">
+                    ${e.cycle_day ? `<span style="font-size:12px;color:var(--text-2);">Day ${e.cycle_day}</span>` : ''}
+                    <button onclick="deleteEntry('${entryId}')" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Delete">✕</button>
+                </div>
             </div>
+            ${(e.sleep_score || e.body_battery || e.hrv_status || e.steps_yesterday) ? `
+            <div class="me-row" style="margin-bottom:8px;flex-wrap:wrap;gap:12px;">
+                ${e.sleep_score ? `<div class="me-stat"><span>Sleep</span><strong style="color:#9b7cdb;">${e.sleep_score}</strong></div>` : ''}
+                ${e.body_battery ? `<div class="me-stat"><span>Battery</span><strong style="color:#e8940a;">${e.body_battery}</strong></div>` : ''}
+                ${e.steps_yesterday ? `<div class="me-stat"><span>Steps</span><strong style="color:var(--text-2);">${Number(e.steps_yesterday).toLocaleString()}</strong></div>` : ''}
+                ${e.hrv_status ? `<div class="me-stat"><span>HRV</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${e.hrv_status}</strong></div>` : ''}
+                ${e.recovery_advisory ? `<div class="me-stat"><span>Recovery</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${e.recovery_advisory}</strong></div>` : ''}
+            </div>` : ''}
             <div class="me-row">
                 <div class="me-stat"><span>Mood</span><strong style="color:var(--accent);">${e.mood}</strong></div>
                 <div class="me-stat"><span>Energy</span><strong style="color:var(--positive);">${e.energy}</strong></div>
@@ -1153,10 +1260,22 @@ function renderSettings() {
     const sbUrl = localStorage.getItem('sb_url') || '';
     const sbKey = localStorage.getItem('sb_key') || '';
     const notifEnabled = Notification?.permission === 'granted';
+    const savedAboutMe = localStorage.getItem('about_me') || '';
 
     el.innerHTML = `
         <h2 style="margin-bottom:6px;">Setup</h2>
         <p style="color:var(--text-2);font-size:13px;margin-bottom:24px;">Configure your Daily OS</p>
+
+        <div class="card" style="margin-bottom:12px;">
+            <h3 style="margin-bottom:10px;">About me</h3>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">
+                Anything that helps Claude ask better questions and spot better patterns. Medications, goals, what's going on in your life right now, recent changes. Update it whenever things shift.
+            </p>
+            <textarea class="text-input" id="about-me-input" rows="5"
+                placeholder="e.g. Currently in a stressful work period. Started reducing Ozempic dose last week. Trying to walk every morning. Period due in about 5 days."
+                style="margin-top:0;">${savedAboutMe}</textarea>
+            <button class="btn btn-primary" onclick="saveAboutMe()" style="margin-top:12px;">Save</button>
+        </div>
 
         <div class="card" style="margin-bottom:12px;">
             <h3 style="margin-bottom:14px;">Supabase database</h3>
@@ -1269,6 +1388,121 @@ function clearLocal() {
     }
 }
 
+
+
+// ============================================================
+// DELETE ENTRY
+// ============================================================
+async function deleteEntry(id) {
+    if (!id) { showToast("Can't delete this entry"); return; }
+    if (!confirm('Delete this entry?')) return;
+
+    if (id.startsWith('local_') || id.startsWith('saved_')) {
+        const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+        localStorage.setItem('local_entries', JSON.stringify(local.filter(e => e.id !== id)));
+    } else if (sbClient) {
+        const { error } = await sbClient.from('daily_checkins').delete().eq('id', id);
+        if (error) { showToast('Could not delete'); return; }
+    }
+
+    entries = entries.filter(e => e.id !== id);
+    showToast('Deleted');
+    if (currentView === 'log') renderLog();
+    if (currentView === 'checkin') renderCheckIn();
+}
+
+// ============================================================
+// WEEKLY SYNTHESIS
+// ============================================================
+let synthesisRunning = false;
+
+async function runWeeklySynthesis() {
+    if (synthesisRunning) return;
+    synthesisRunning = true;
+
+    const el = document.getElementById('synthesis-result');
+    el.innerHTML = '<div class="bubble-thinking" style="display:inline-flex;padding:14px 18px;border-radius:12px;background:var(--surface-2);margin-top:16px;"><div class="dot-pulse"><span></span><span></span><span></span></div></div>';
+
+    const last7 = getRecentEntries(7);
+    if (last7.length < 2) {
+        el.innerHTML = '<p style="color:var(--text-2);font-size:14px;margin-top:16px;">Not enough data yet — keep logging for a few more days.</p>';
+        synthesisRunning = false;
+        return;
+    }
+
+    const dataText = last7.map(e => {
+        const parts = [`[${e.entry_date} ${e.type}]`];
+        if (e.mood) parts.push(`mood:${e.mood}`);
+        if (e.energy) parts.push(`energy:${e.energy}`);
+        if (e.mood_note) parts.push(`mood note:"${e.mood_note}"`);
+        if (e.energy_note) parts.push(`energy note:"${e.energy_note}"`);
+        if (e.focus_quality) parts.push(`focus:${e.focus_quality}`);
+        if (e.body_awareness) parts.push(`food:${e.body_awareness}`);
+        if (e.movement) parts.push(`movement:${e.movement}`);
+        if (e.work_status) parts.push(`work:${e.work_status}`);
+        if (e.work_intention) parts.push(`intention:"${e.work_intention}"`);
+        if (e.sleep_score) parts.push(`sleep:${e.sleep_score}`);
+        if (e.body_battery) parts.push(`battery:${e.body_battery}`);
+        if (e.hrv_status) parts.push(`hrv:${e.hrv_status}`);
+        if (e.recovery_advisory) parts.push(`recovery:${e.recovery_advisory}`);
+        if (e.steps_yesterday) parts.push(`steps:${e.steps_yesterday}`);
+        if (e.weight) parts.push(`weight:${e.weight}kg`);
+        if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
+        if (e.note) parts.push(`note:"${e.note}"`);
+        return parts.join(' ');
+    }).join('\n');
+
+    const customContext = aboutMe ? `\n\nUser context: ${aboutMe}` : '';
+    const systemPrompt = `You are a personal behaviour coach analysing a week of tracking data for Nik, a 37-year-old woman in Agnes Water, Queensland.
+
+About Nik: ADHD, autism, binge eating disorder, PMDD, depression, hypersensitivity/anxiety. On Ozempic, Prozac, Vyvanse. Runs her own business. Goals: weight loss, fitness, business consistency, better habits.${customContext}
+
+Analyse the data below and give Nik a genuine, useful weekly read. Structure it as:
+
+**What I'm seeing** (2-3 sentences — actual patterns, not summaries. Connect dots. Reference specific data points.)
+
+**The thing worth paying attention to** (1-2 sentences — the most important signal in this week's data)
+
+**One thing to try this week** (1 sentence — specific, small, evidence-based. Not generic advice.)
+
+Be direct. No fluff. No "great job logging!" No bullet points within sections. Write like a smart mate who knows the research, not a wellness app.`;
+
+    try {
+        const res = await fetch('/.netlify/functions/claude', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                system: systemPrompt,
+                messages: [{ role: 'user', content: `Here is my last 7 days of data:\n\n${dataText}\n\nGive me my weekly read.` }],
+                max_tokens: 400
+            })
+        });
+        const data = await res.json();
+        const text = data.content?.[0]?.text || 'Could not generate synthesis.';
+
+        // Simple markdown bold rendering
+        const rendered = text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n\n/g, '</p><p style="margin-top:14px;">')
+            .replace(/\n/g, '<br>');
+
+        el.innerHTML = `<div style="margin-top:16px;background:var(--surface-2);border-radius:14px;padding:18px;border:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text);"><p>${rendered}</p></div>
+        <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Based on ${last7.length} entries from the last 7 days</p>`;
+    } catch(e) {
+        el.innerHTML = '<p style="color:var(--text-2);font-size:14px;margin-top:16px;">Could not connect — check your internet and try again.</p>';
+    }
+    synthesisRunning = false;
+}
+
+// ============================================================
+// ABOUT ME — save
+// ============================================================
+function saveAboutMe() {
+    const val = document.getElementById('about-me-input').value.trim();
+    aboutMe = val;
+    localStorage.setItem('about_me', val);
+    showToast('Saved ✓');
+}
 
 // ============================================================
 // QUICK LOG
@@ -1383,6 +1617,7 @@ function buildQLSystemPrompt() {
     const lastCycle = recent.find(e => e.cycle_day);
     const phaseInfo = lastCycle ? `Current cycle day approximately ${lastCycle.cycle_day} (logged ${lastCycle.entry_date})` : 'Cycle day unknown';
 
+    const customContext = aboutMe ? `\n\nAdditional context (user-provided):\n${aboutMe}` : '';
     return `You are a personal behaviour coach inside a daily tracking app for Nik, a 37-year-old woman in Agnes Water, Queensland.
 
 About Nik:
@@ -1390,7 +1625,7 @@ About Nik:
 - On Ozempic (weight management), Prozac (daily), Vyvanse (ADHD/BED)
 - Runs her own marketing consultancy. Working on weight loss, fitness, business consistency
 - Smart, direct, no-nonsense. Hates being patronised. Voice-to-text user so replies may be casual/rough
-- ${phaseInfo}
+- ${phaseInfo}${customContext}
 
 Recent check-in data:
 ${recentSummary || 'No recent data yet'}
@@ -1470,6 +1705,7 @@ async function init() {
         try { await navigator.serviceWorker.register('/sw.js'); } catch(e) {}
     }
     initSupabase();
+    aboutMe = localStorage.getItem('about_me') || '';
     await loadEntries();
     renderCheckIn();
     if (Notification?.permission === 'granted') setTimeout(scheduleNotifications, 1000);
