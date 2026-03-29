@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS daily_checkins (
     id              UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     entry_date      DATE        DEFAULT CURRENT_DATE,
-    type            TEXT        NOT NULL CHECK (type IN ('morning', 'afternoon')),
+    type            TEXT        NOT NULL CHECK (type IN ('morning', 'afternoon', 'quicklog')),
 
     -- Both check-ins
     cycle_day       INTEGER     CHECK (cycle_day BETWEEN 1 AND 35),
