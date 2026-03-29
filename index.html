@@ -241,6 +241,118 @@
         /* Section header */
         .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; margin-top: 20px; }
         .section-header:first-child { margin-top: 0; }
+
+        /* FAB */
+        .fab {
+            position: fixed;
+            right: 20px;
+            bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px) + 16px);
+            width: 52px; height: 52px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: none; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 20px rgba(232,148,10,0.35);
+            z-index: 90;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .fab:active { transform: scale(0.92); box-shadow: 0 2px 10px rgba(232,148,10,0.2); }
+        .fab svg { width: 22px; height: 22px; stroke: #121210; }
+
+        /* Quick log modal */
+        .ql-modal {
+            position: fixed; inset: 0; z-index: 200;
+            background: rgba(12,12,10,0.85);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: flex; align-items: flex-end;
+        }
+        .ql-inner {
+            width: 100%; max-width: 480px; margin: 0 auto;
+            background: var(--surface);
+            border-radius: 24px 24px 0 0;
+            border-top: 1px solid rgba(240,220,160,0.1);
+            max-height: 88vh;
+            display: flex; flex-direction: column;
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+            animation: slideUp 0.28s cubic-bezier(0.4,0,0.2,1);
+        }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .ql-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 18px 20px 14px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .ql-title { font-family: var(--font-display); font-size: 20px; font-weight: 400; }
+        .ql-close {
+            background: var(--surface-2); border: none; color: var(--text-2);
+            width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+            font-size: 13px; display: flex; align-items: center; justify-content: center;
+        }
+        .ql-body {
+            padding: 20px; overflow-y: auto; flex: 1;
+            display: flex; flex-direction: column; gap: 14px;
+        }
+
+        /* Conversation bubbles */
+        .bubble {
+            max-width: 88%; padding: 12px 16px; border-radius: 18px;
+            font-size: 15px; line-height: 1.5; animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .bubble-ai {
+            background: var(--surface-2); color: var(--text);
+            border-bottom-left-radius: 4px; align-self: flex-start;
+        }
+        .bubble-user {
+            background: var(--accent-dim); color: var(--text);
+            border: 1px solid rgba(232,148,10,0.18);
+            border-bottom-right-radius: 4px; align-self: flex-end;
+        }
+        .bubble-action {
+            background: rgba(92,170,111,0.1); color: var(--positive);
+            border: 1px solid rgba(92,170,111,0.2);
+            border-radius: 12px; align-self: stretch;
+            font-size: 13px; font-weight: 500;
+        }
+        .bubble-thinking {
+            background: var(--surface-2); align-self: flex-start;
+            padding: 14px 18px; border-bottom-left-radius: 4px;
+        }
+        .dot-pulse { display: flex; gap: 5px; align-items: center; }
+        .dot-pulse span {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--text-3); animation: dpulse 1.2s infinite;
+        }
+        .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+        .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes dpulse { 0%,60%,100% { opacity: 0.3; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
+
+        /* Input area */
+        .ql-input-row {
+            display: flex; gap: 10px; align-items: flex-end;
+            padding: 12px 20px 16px;
+            border-top: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .ql-textarea {
+            flex: 1; background: var(--surface-2); border: 1.5px solid var(--border);
+            border-radius: 16px; padding: 12px 14px; color: var(--text);
+            font-family: var(--font-body); font-size: 15px;
+            resize: none; outline: none; max-height: 120px;
+            transition: border-color 0.15s; line-height: 1.4;
+        }
+        .ql-textarea:focus { border-color: rgba(232,148,10,0.4); }
+        .ql-textarea::placeholder { color: var(--text-3); }
+        .ql-send {
+            width: 42px; height: 42px; border-radius: 50%;
+            background: var(--accent); border: none; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; transition: opacity 0.15s;
+        }
+        .ql-send:disabled { opacity: 0.35; cursor: default; }
+        .ql-send svg { width: 18px; height: 18px; stroke: #121210; }
     </style>
 </head>
 <body>
@@ -278,6 +390,32 @@
         </div>
     </nav>
 </div>
+
+    <!-- Floating quick-log button -->
+    <button class="fab" onclick="openQuickLog()" id="fab" title="Quick log">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+
+    <!-- Quick log modal -->
+    <div id="ql-modal" class="ql-modal" style="display:none;">
+        <div class="ql-inner">
+            <div class="ql-header">
+                <span class="ql-title">Quick log</span>
+                <button class="ql-close" onclick="closeQuickLog()">&#x2715;</button>
+            </div>
+            <div id="ql-body" class="ql-body"></div>
+            <div class="ql-input-row" id="ql-input-row">
+                <textarea class="ql-textarea" id="ql-input" rows="1" placeholder="What's going on..."
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQL();}"
+                    oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';document.getElementById('ql-send').disabled=!this.value.trim();"
+                ></textarea>
+                <button class="ql-send" id="ql-send" disabled onclick="sendQL()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -951,12 +1089,36 @@ function renderLog() {
         <h2 style="margin-bottom:20px;">Your log</h2>
         ${sorted.map(d => `
             <div class="section-header"><h3>${formatDate(d)}</h3></div>
-            ${byDate[d].sort((a,b)=>a.type==='morning'?-1:1).map(buildLogEntry).join('')}
+            ${byDate[d].sort((a,b)=>{
+                const order = {morning:0,afternoon:1,quicklog:2};
+                return (order[a.type]??2)-(order[b.type]??2);
+            }).map(buildLogEntry).join('')}
         `).join('')}
     `;
 }
 
 function buildLogEntry(e) {
+    // Quick log entries
+    if (e.type === 'quicklog') {
+        const lines = (e.note||'').split('\n');
+        const bubbles = lines.map(l => {
+            if (!l.trim()) return '';
+            const isNik = l.startsWith('Nik:');
+            const isCoach = l.startsWith('Coach:');
+            const text = l.replace(/^(Nik:|Coach:)\s*/, '');
+            if (!text) return '';
+            if (isNik) return `<div style="font-size:13px;color:var(--text-2);margin-bottom:4px;padding-left:8px;border-left:2px solid rgba(232,148,10,0.3);">${text}</div>`;
+            if (isCoach) return `<div style="font-size:13px;color:var(--text);margin-bottom:4px;font-weight:500;">${text}</div>`;
+            return `<div style="font-size:13px;color:var(--text-2);margin-bottom:4px;">${text}</div>`;
+        }).join('');
+        return `
+            <div class="log-entry">
+                <div class="log-entry-header">
+                    <span class="type-badge" style="background:rgba(155,124,219,0.15);color:#9b7cdb;">⚡ Quick log</span>
+                </div>
+                ${bubbles}
+            </div>`;
+    }
     const bLabels = { checked_in: 'Checked in', drifted: 'Drifted', autopilot: 'Autopilot' };
     const mLabels = { yes: '↑ Movement', a_bit: '→ A bit', no: '— No movement' };
     const wLabels = { done: '✓ Done', in_progress: '~ In progress', didnt_happen: '— Didn\'t happen' };
@@ -1107,6 +1269,201 @@ function clearLocal() {
     }
 }
 
+
+// ============================================================
+// QUICK LOG
+// ============================================================
+let qlConversation = [];   // {role, content}
+let qlFollowUpCount = 0;
+let qlDone = false;
+let qlSaving = false;
+
+function openQuickLog() {
+    qlConversation = [];
+    qlFollowUpCount = 0;
+    qlDone = false;
+    document.getElementById('ql-modal').style.display = 'flex';
+    document.getElementById('ql-body').innerHTML = '';
+    document.getElementById('ql-input').value = '';
+    document.getElementById('ql-input').style.height = 'auto';
+    document.getElementById('ql-send').disabled = true;
+    document.getElementById('ql-input-row').style.display = 'flex';
+    document.getElementById('ql-input').placeholder = "What's going on? (voice or type)";
+    setTimeout(() => document.getElementById('ql-input').focus(), 300);
+}
+
+function closeQuickLog() {
+    document.getElementById('ql-modal').style.display = 'none';
+    qlConversation = [];
+}
+
+function addBubble(text, type) {
+    const body = document.getElementById('ql-body');
+    const div = document.createElement('div');
+    div.className = `bubble bubble-${type}`;
+    div.textContent = text;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    return div;
+}
+
+function addThinking() {
+    const body = document.getElementById('ql-body');
+    const div = document.createElement('div');
+    div.className = 'bubble bubble-thinking';
+    div.id = 'ql-thinking';
+    div.innerHTML = '<div class="dot-pulse"><span></span><span></span><span></span></div>';
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+function removeThinking() {
+    const t = document.getElementById('ql-thinking');
+    if (t) t.remove();
+}
+
+async function sendQL() {
+    const input = document.getElementById('ql-input');
+    const text = input.value.trim();
+    if (!text || qlSaving) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('ql-send').disabled = true;
+
+    addBubble(text, 'user');
+    qlConversation.push({ role: 'user', content: text });
+
+    if (qlDone) return;
+
+    addThinking();
+    const reply = await getQLResponse();
+    removeThinking();
+
+    if (reply) {
+        if (reply.type === 'question') {
+            addBubble(reply.text, 'ai');
+            qlConversation.push({ role: 'assistant', content: reply.text });
+            qlFollowUpCount++;
+            input.placeholder = 'Reply...';
+            setTimeout(() => input.focus(), 200);
+        } else if (reply.type === 'done') {
+            addBubble(reply.text, 'ai');
+            qlConversation.push({ role: 'assistant', content: reply.text });
+            if (reply.action) {
+                const actionDiv = document.createElement('div');
+                actionDiv.className = 'bubble bubble-action';
+                actionDiv.innerHTML = `<strong>One thing:</strong> ${reply.action}`;
+                document.getElementById('ql-body').appendChild(actionDiv);
+                document.getElementById('ql-body').scrollTop = document.getElementById('ql-body').scrollHeight;
+            }
+            qlDone = true;
+            document.getElementById('ql-input-row').style.display = 'none';
+            await saveQuickLog();
+            setTimeout(() => {
+                if (currentView === 'log') renderLog();
+            }, 400);
+        }
+    }
+}
+
+function buildQLSystemPrompt() {
+    const recent = getRecentEntries(14);
+    const recentSummary = recent.slice(0, 10).map(e => {
+        const parts = [`[${e.entry_date} ${e.type}] mood:${e.mood} energy:${e.energy}`];
+        if (e.energy_note) parts.push(`energy note: "${e.energy_note}"`);
+        if (e.mood_note) parts.push(`mood note: "${e.mood_note}"`);
+        if (e.focus_quality) parts.push(`focus: ${e.focus_quality}`);
+        if (e.body_awareness) parts.push(`food: ${e.body_awareness}`);
+        if (e.movement) parts.push(`movement: ${e.movement}`);
+        if (e.note) parts.push(`note: "${e.note}"`);
+        return parts.join(', ');
+    }).join('\n');
+
+    const lastCycle = recent.find(e => e.cycle_day);
+    const phaseInfo = lastCycle ? `Current cycle day approximately ${lastCycle.cycle_day} (logged ${lastCycle.entry_date})` : 'Cycle day unknown';
+
+    return `You are a personal behaviour coach inside a daily tracking app for Nik, a 37-year-old woman in Agnes Water, Queensland.
+
+About Nik:
+- ADHD, autism, binge eating disorder, hyphenxiety (hypersensitivity/anxiety), depression, suspected PMDD
+- On Ozempic (weight management), Prozac (daily), Vyvanse (ADHD/BED)
+- Runs her own marketing consultancy. Working on weight loss, fitness, business consistency
+- Smart, direct, no-nonsense. Hates being patronised. Voice-to-text user so replies may be casual/rough
+- ${phaseInfo}
+
+Recent check-in data:
+${recentSummary || 'No recent data yet'}
+
+Your job when Nik logs something:
+1. Ask ONE short follow-up question to understand what drove the behaviour. Be specific, not generic. Max 15 words per question.
+2. After max 2 follow-ups, wrap up with: a brief pattern observation (1-2 sentences max, factual not preachy), then ONE concrete small action she could take.
+3. Keep it warm but direct. No lecturing. No paragraphs. No "that's great!" or "I hear you."
+4. Connect to her recent data when relevant — e.g. "this is the third time this week."
+
+Respond ONLY as valid JSON in this exact format:
+For a follow-up question: {"type":"question","text":"Your question here"}
+For the final wrap-up: {"type":"done","text":"Pattern observation here.","action":"One concrete small action here"}
+
+No other text. Only the JSON object.`;
+}
+
+async function getQLResponse() {
+    const maxFollowUps = 2;
+    const isWrapUp = qlFollowUpCount >= maxFollowUps;
+
+    const messages = [...qlConversation];
+    if (isWrapUp) {
+        messages.push({ role: 'user', content: '[Wrap up now with your pattern observation and one action]' });
+    }
+
+    try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 200,
+                system: buildQLSystemPrompt(),
+                messages
+            })
+        });
+        const data = await res.json();
+        const raw = data.content?.[0]?.text || '';
+        const clean = raw.replace(/```json|```/g, '').trim();
+        return JSON.parse(clean);
+    } catch(e) {
+        console.error('QL error:', e);
+        return { type: 'done', text: 'Logged.', action: null };
+    }
+}
+
+async function saveQuickLog() {
+    if (qlSaving) return;
+    qlSaving = true;
+    const logText = qlConversation.map(m => `${m.role === 'user' ? 'Nik' : 'Coach'}: ${m.content}`).join('\n');
+    const entry = {
+        entry_date: todayStr(),
+        type: 'quicklog',
+        mood: null,
+        energy: null,
+        note: logText
+    };
+
+    try {
+        if (sbClient) {
+            await sbClient.from('daily_checkins').insert([entry]);
+        } else {
+            const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+            local.unshift({ ...entry, id: `local_${Date.now()}`, created_at: new Date().toISOString() });
+            localStorage.setItem('local_entries', JSON.stringify(local));
+        }
+        entries.unshift({ ...entry, id: `saved_${Date.now()}`, created_at: new Date().toISOString() });
+    } catch(e) {
+        console.error('Save error:', e);
+    }
+    qlSaving = false;
+}
 // ============================================================
 // INIT
 // ============================================================
