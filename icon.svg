@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#121210"/>
+  <!-- Outer ring -->
+  <circle cx="96" cy="96" r="54" fill="none" stroke="#1c1c16" stroke-width="14"/>
+  <!-- Progress arc (75% filled = amber) -->
+  <circle cx="96" cy="96" r="54" fill="none" stroke="#e8940a" stroke-width="14"
+          stroke-dasharray="254" stroke-dashoffset="64"
+          stroke-linecap="round"
+          transform="rotate(-90 96 96)"/>
+  <!-- Centre dot -->
+  <circle cx="96" cy="96" r="8" fill="#e8940a"/>
+  <!-- Tick mark at top -->
+  <circle cx="96" cy="42" r="5" fill="#5caa6f"/>
+</svg>
