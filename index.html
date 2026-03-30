@@ -362,6 +362,50 @@
         .edit-scale-btn.selected { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
         .edit-select { width: 100%; background: var(--surface-2); border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-family: var(--font-body); font-size: 15px; outline: none; -webkit-appearance: none; margin-top: 4px; }
         .edit-select:focus { border-color: rgba(232,148,10,0.4); }
+
+        /* FAB action sheet */
+        .fab-sheet {
+            position: fixed; inset: 0; z-index: 190;
+            display: flex; align-items: flex-end; justify-content: center;
+        }
+        .fab-sheet-backdrop {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.5);
+        }
+        .fab-sheet-inner {
+            position: relative; z-index: 1;
+            width: 100%; max-width: 480px;
+            background: var(--surface);
+            border-radius: 24px 24px 0 0;
+            border-top: 1px solid rgba(240,220,160,0.1);
+            padding: 20px 20px calc(env(safe-area-inset-bottom, 0px) + 20px);
+            animation: slideUp 0.22s cubic-bezier(0.4,0,0.2,1);
+        }
+        .fab-sheet-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 14px; text-align: center; }
+        .fab-option {
+            display: flex; align-items: center; gap: 16px;
+            padding: 16px 18px; border-radius: 14px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            margin-bottom: 10px; cursor: pointer;
+            transition: background 0.15s;
+        }
+        .fab-option:active { background: var(--accent-dim); }
+        .fab-option-icon { font-size: 22px; width: 32px; text-align: center; }
+        .fab-option-label { font-size: 16px; font-weight: 600; color: var(--text); }
+        .fab-option-sub { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+
+        /* Spot check-in scale */
+        .spot-scale { display: flex; gap: 8px; margin-top: 8px; }
+        .spot-scale-btn {
+            flex: 1; padding: 12px 0; border-radius: 12px;
+            background: var(--surface-2); border: 2px solid transparent;
+            color: var(--text-2); font-size: 18px; font-weight: 600;
+            font-family: var(--font-display); cursor: pointer;
+            transition: all 0.15s; text-align: center;
+        }
+        .spot-scale-btn:active { transform: scale(0.9); }
+        .spot-scale-btn.selected { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+        .spot-label { font-family: var(--font-display); font-size: 26px; font-weight: 300; line-height: 1.2; margin-bottom: 4px; margin-top: 18px; }
+        .spot-sub { color: var(--text-2); font-size: 13px; margin-bottom: 2px; }
     </style>
 </head>
 <body>
@@ -400,10 +444,46 @@
     </nav>
 </div>
 
-    <!-- Floating quick-log button -->
-    <button class="fab" onclick="openQuickLog()" id="fab" title="Quick log">
+    <!-- Floating action button -->
+    <button class="fab" onclick="openFabSheet()" id="fab" title="Log something">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
+
+    <!-- FAB action sheet -->
+    <div id="fab-sheet" class="fab-sheet" style="display:none;" onclick="closeFabSheet(event)">
+        <div class="fab-sheet-backdrop"></div>
+        <div class="fab-sheet-inner">
+            <div class="fab-sheet-title">What do you want to log?</div>
+            <div class="fab-option" onclick="closeFabSheet();openQuickLog();">
+                <div class="fab-option-icon">⚡</div>
+                <div>
+                    <div class="fab-option-label">Quick log</div>
+                    <div class="fab-option-sub">Chat it through with your coach — keep going as long as you want</div>
+                </div>
+            </div>
+            <div class="fab-option" onclick="closeFabSheet();openSpotCheckIn();">
+                <div class="fab-option-icon">📊</div>
+                <div>
+                    <div class="fab-option-label">Spot check-in</div>
+                    <div class="fab-option-sub">Fast mood + energy snapshot — no AI, just data</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spot check-in modal -->
+    <div id="spot-modal" class="ql-modal" style="display:none;">
+        <div class="ql-inner" style="max-height:92vh;">
+            <div class="ql-header">
+                <span class="ql-title">Spot check-in</span>
+                <button class="ql-close" onclick="closeSpotCheckIn()">&#x2715;</button>
+            </div>
+            <div id="spot-body" class="ql-body" style="gap:0;padding-bottom:4px;"></div>
+            <div style="padding:12px 20px 16px;border-top:1px solid var(--border);flex-shrink:0;">
+                <button class="btn btn-primary" onclick="submitSpotCheckIn()" id="spot-save-btn">Save</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Quick log modal -->
     <div id="ql-modal" class="ql-modal" style="display:none;">
@@ -413,6 +493,11 @@
                 <button class="ql-close" onclick="closeQuickLog()">&#x2715;</button>
             </div>
             <div id="ql-body" class="ql-body"></div>
+            <div style="padding:8px 20px 0;flex-shrink:0;">
+                <button id="ql-wrap-btn" onclick="wrapUpQL()" style="display:none;width:100%;padding:10px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);font-family:var(--font-body);font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.03em;">
+                    Wrap it up →
+                </button>
+            </div>
             <div class="ql-input-row" id="ql-input-row">
                 <textarea class="ql-textarea" id="ql-input" rows="1" placeholder="What's going on..."
                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQL();}"
@@ -1258,8 +1343,8 @@ function renderLog() {
         ${sorted.map(d => `
             <div class="section-header"><h3>${formatDate(d)}</h3></div>
             ${byDate[d].sort((a,b)=>{
-                const order = {morning:0,afternoon:1,quicklog:2};
-                return (order[a.type]??2)-(order[b.type]??2);
+                const order = {morning:0,afternoon:1,spot:2,quicklog:3};
+                return (order[a.type]??3)-(order[b.type]??3);
             }).map(buildLogEntry).join('')}
         `).join('')}
     `;
@@ -1288,6 +1373,26 @@ function buildLogEntry(e) {
                     <button onclick="deleteEntry('${entryId}')" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Delete">✕</button>
                 </div>
                 ${bubbles}
+            </div>`;
+    }
+    // Spot check-in entries
+    if (e.type === 'spot') {
+        return `
+            <div class="log-entry">
+                <div class="log-entry-header">
+                    <span class="type-badge" style="background:rgba(92,170,111,0.12);color:var(--positive);">📊 Spot</span>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <button onclick="editEntry('${entryId}')" style="background:none;border:none;color:var(--text-2);font-size:15px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Edit">✎</button>
+                        <button onclick="deleteEntry('${entryId}')" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Delete">✕</button>
+                    </div>
+                </div>
+                <div class="me-row">
+                    <div class="me-stat"><span>Mood</span><strong style="color:var(--accent);">${e.mood}</strong></div>
+                    <div class="me-stat"><span>Energy</span><strong style="color:var(--positive);">${e.energy}</strong></div>
+                </div>
+                ${e.mood_note ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;font-style:italic;">"${esc(e.mood_note)}"</div>` : ''}
+                ${e.energy_note ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;font-style:italic;">"${esc(e.energy_note)}"</div>` : ''}
+                ${e.note ? `<div style="font-size:13px;color:var(--text);margin-top:6px;line-height:1.5;">${esc(e.note)}</div>` : ''}
             </div>`;
     }
     const bLabels = { checked_in: 'Checked in', drifted: 'Drifted', autopilot: 'Autopilot' };
@@ -1839,6 +1944,19 @@ function getProfileContext() {
 }
 
 // ============================================================
+// FAB ACTION SHEET
+// ============================================================
+function openFabSheet() {
+    document.getElementById('fab-sheet').style.display = 'flex';
+}
+function closeFabSheet(e) {
+    // Close if tapping backdrop or called directly
+    if (!e || e.target === document.getElementById('fab-sheet') || e.target.classList.contains('fab-sheet-backdrop')) {
+        document.getElementById('fab-sheet').style.display = 'none';
+    }
+}
+
+// ============================================================
 // QUICK LOG
 // ============================================================
 let qlConversation = [];   // {role, content}
@@ -1860,6 +1978,8 @@ function openQuickLog() {
     document.getElementById('ql-send').disabled = true;
     document.getElementById('ql-input-row').style.display = 'flex';
     document.getElementById('ql-input').placeholder = "What's going on? (voice or type)";
+    const wrapBtn = document.getElementById('ql-wrap-btn');
+    if (wrapBtn) wrapBtn.style.display = 'none';
     setTimeout(() => document.getElementById('ql-input').focus(), 300);
 }
 
@@ -1919,6 +2039,9 @@ async function sendQL() {
             qlConversation.push({ role: 'assistant', content: reply.text });
             qlFollowUpCount++;
             input.placeholder = 'Reply...';
+            // Show wrap-up button after first exchange
+            const wrapBtn = document.getElementById('ql-wrap-btn');
+            if (wrapBtn && qlFollowUpCount >= 1) wrapBtn.style.display = 'block';
             setTimeout(() => input.focus(), 200);
         } else if (reply.type === 'done') {
             addBubble(reply.text, 'ai');
@@ -1937,6 +2060,37 @@ async function sendQL() {
                 if (currentView === 'log') renderLog();
             }, 400);
         }
+    }
+}
+
+async function wrapUpQL() {
+    if (qlDone || qlFetching || qlSaving) return;
+    const wrapBtn = document.getElementById('ql-wrap-btn');
+    if (wrapBtn) wrapBtn.style.display = 'none';
+    const input = document.getElementById('ql-input');
+    if (input) { input.value = ''; input.style.height = 'auto'; }
+    document.getElementById('ql-send').disabled = true;
+
+    qlFetching = true;
+    addThinking();
+    const reply = await getQLResponse(true); // forceWrapUp = true
+    removeThinking();
+    qlFetching = false;
+
+    if (reply && reply.type === 'done') {
+        addBubble(reply.text, 'ai');
+        qlConversation.push({ role: 'assistant', content: reply.text });
+        if (reply.action) {
+            const actionDiv = document.createElement('div');
+            actionDiv.className = 'bubble bubble-action';
+            actionDiv.innerHTML = '<strong>One thing:</strong> ' + esc(reply.action);
+            document.getElementById('ql-body').appendChild(actionDiv);
+            document.getElementById('ql-body').scrollTop = document.getElementById('ql-body').scrollHeight;
+        }
+        qlDone = true;
+        document.getElementById('ql-input-row').style.display = 'none';
+        await saveQuickLog();
+        setTimeout(() => { if (currentView === 'log') renderLog(); }, 400);
     }
 }
 
@@ -1970,10 +2124,11 @@ Recent check-in data:
 ${recentSummary || 'No recent data yet'}
 
 Your job when Nik logs something:
-1. Ask ONE short follow-up question to understand what drove the behaviour. Be specific, not generic. Max 15 words per question.
-2. After max 2 follow-ups, wrap up with: a brief pattern observation (1-2 sentences max, factual not preachy), then ONE concrete small action she could take.
-3. Keep it warm but direct. No lecturing. No paragraphs. No "that's great!" or "I hear you."
-4. Connect to her recent data when relevant — e.g. "this is the third time this week."
+1. Ask ONE short follow-up question to understand what's going on. Be specific, not generic. Max 15 words per question.
+2. Keep asking questions as long as it's useful — the conversation continues until Nik decides to wrap up. There is no forced limit.
+3. When you receive "[Wrap up now]", give: a brief pattern observation (1-2 sentences max, factual not preachy), then ONE concrete small action.
+4. Keep it warm but direct. No lecturing. No paragraphs. No "that's great!" or "I hear you."
+5. Connect to her recent data when relevant — e.g. "this is the third time this week."
 
 Respond ONLY as valid JSON in this exact format:
 For a follow-up question: {"type":"question","text":"Your question here"}
@@ -1982,13 +2137,10 @@ For the final wrap-up: {"type":"done","text":"Pattern observation here.","action
 No other text. Only the JSON object.`;
 }
 
-async function getQLResponse() {
-    const maxFollowUps = 2;
-    const isWrapUp = qlFollowUpCount >= maxFollowUps;
-
+async function getQLResponse(forceWrapUp = false) {
     const messages = [...qlConversation];
-    if (isWrapUp) {
-        messages.push({ role: 'user', content: '[Wrap up now with your pattern observation and one action]' });
+    if (forceWrapUp) {
+        messages.push({ role: 'user', content: '[Wrap up now]' });
     }
 
     try {
@@ -2047,6 +2199,84 @@ async function saveQuickLog() {
     qlSaving = false;
 }
 // ============================================================
+// SPOT CHECK-IN
+// ============================================================
+let spotData = { mood: null, energy: null, mood_note: null, energy_note: null, note: null };
+
+function openSpotCheckIn() {
+    spotData = { mood: null, energy: null, mood_note: null, energy_note: null, note: null };
+    const today = todayStr();
+    const morningEntry = entries.find(e => e.entry_date === today && e.type === 'morning');
+    const workIntention = morningEntry?.work_intention || null;
+
+    const body = document.getElementById('spot-body');
+    body.innerHTML = `
+        <div style="padding-bottom:4px;">
+            ${workIntention ? `<div style="font-size:12px;color:var(--text-3);margin-bottom:12px;padding:10px 12px;background:var(--surface-2);border-radius:10px;border-left:2px solid rgba(232,148,10,0.3);">This morning: "${esc(workIntention)}"</div>` : ''}
+            <p class="spot-label">Mood</p>
+            <p class="spot-sub">1 = rough, 5 = solid</p>
+            <div class="spot-scale" id="spot-mood-scale">
+                ${[1,2,3,4,5].map(n => `<button class="spot-scale-btn" onclick="selectSpotScale('mood',${n},this)">${n}</button>`).join('')}
+            </div>
+            <input type="text" class="text-input" style="margin-top:10px;" placeholder="Mood note (optional)"
+                oninput="spotData.mood_note=this.value.trim()||null">
+
+            <p class="spot-label">Energy</p>
+            <p class="spot-sub">1 = flat, 5 = firing</p>
+            <div class="spot-scale" id="spot-energy-scale">
+                ${[1,2,3,4,5].map(n => `<button class="spot-scale-btn" onclick="selectSpotScale('energy',${n},this)">${n}</button>`).join('')}
+            </div>
+            <input type="text" class="text-input" style="margin-top:10px;" placeholder="Energy note (optional)"
+                oninput="spotData.energy_note=this.value.trim()||null">
+
+            <p class="spot-label" style="font-size:20px;">What's happening? <span style="color:var(--text-3);font-size:14px;">optional</span></p>
+            <textarea class="text-input" rows="2" style="margin-top:6px;" placeholder="Quick note..."
+                oninput="spotData.note=this.value.trim()||null"></textarea>
+        </div>`;
+
+    document.getElementById('spot-modal').style.display = 'flex';
+}
+
+function selectSpotScale(field, val, btn) {
+    spotData[field] = val;
+    btn.closest('.spot-scale').querySelectorAll('.spot-scale-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+}
+
+function closeSpotCheckIn() {
+    document.getElementById('spot-modal').style.display = 'none';
+}
+
+async function submitSpotCheckIn() {
+    if (!spotData.mood || !spotData.energy) { showToast('Tap a mood and energy score first'); return; }
+    const btn = document.getElementById('spot-save-btn');
+    if (btn) btn.disabled = true;
+
+    const entry = {
+        type: 'spot',
+        entry_date: todayStr(),
+        mood: spotData.mood,
+        energy: spotData.energy,
+        mood_note: spotData.mood_note,
+        energy_note: spotData.energy_note,
+        note: spotData.note
+    };
+
+    try {
+        const { data } = await saveEntry(entry);
+        if (data) entries.unshift(data);
+        closeSpotCheckIn();
+        showToast('Spot check-in saved ✓');
+        if (currentView === 'checkin') renderCheckIn();
+        if (currentView === 'log') renderLog();
+    } catch(e) {
+        showToast('Could not save — try again');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// ============================================================
 // EDIT ENTRY
 // ============================================================
 let editingId = null;
@@ -2056,6 +2286,7 @@ function editEntry(id) {
     const entry = entries.find(e => e.id === id);
     if (!entry) { showToast("Can't find that entry"); return; }
     if (entry.type === 'quicklog') { showToast("Quick logs can't be edited — they're conversation transcripts"); return; }
+    // spot uses same modal path as morning/afternoon but with minimal fields
     editingId = id;
     editingData = { ...entry };
     document.getElementById('edit-modal-title').textContent =
@@ -2073,6 +2304,7 @@ function closeEditModal() {
 function renderEditModal(e) {
     const body = document.getElementById('edit-modal-body');
     const isMorning = e.type === 'morning';
+    const isSpot = e.type === 'spot';
 
     // Helper builders — all inline to avoid variable-name clashes with outer scope
     const numField = (label, key, val, min, max) =>
@@ -2108,7 +2340,7 @@ function renderEditModal(e) {
 
     let h = '';
 
-    if (isMorning) {
+    if (isMorning && !isSpot) {
         h += numField('Cycle day', 'cycle_day', e.cycle_day, 1, 35);
         h += numField('Sleep score (0–100)', 'sleep_score', e.sleep_score, 0, 100);
         h += numField('Body battery (0–100)', 'body_battery', e.body_battery, 0, 100);
@@ -2126,9 +2358,11 @@ function renderEditModal(e) {
     h += scaleField('Energy', 'energy', e.energy);
     h += textField('Energy note', 'energy_note', e.energy_note);
 
-    if (isMorning) {
+    if (isMorning && !isSpot) {
         h += textField('Work intention', 'work_intention', e.work_intention);
         h += textField('Body intention', 'body_intention', e.body_intention);
+    } else if (isSpot) {
+        h += textareaField('Notes', 'note', e.note);
     } else {
         h += selField('Focus quality', 'focus_quality', e.focus_quality, [
             {v:'',l:'(skip)'},{v:'on_target',l:'On target'},{v:'scattered',l:'Scattered'},
