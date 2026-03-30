@@ -353,6 +353,15 @@
         }
         .ql-send:disabled { opacity: 0.35; cursor: default; }
         .ql-send svg { width: 18px; height: 18px; stroke: #121210; }
+
+        /* Edit entry modal */
+        .edit-field { margin-bottom: 18px; }
+        .edit-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 4px; display: block; }
+        .edit-scale-row { display: flex; gap: 6px; margin-top: 4px; }
+        .edit-scale-btn { flex: 1; padding: 10px 0; border-radius: 10px; background: var(--surface-2); border: 2px solid transparent; color: var(--text-2); font-size: 16px; font-weight: 600; font-family: var(--font-display); cursor: pointer; transition: all 0.15s; text-align: center; }
+        .edit-scale-btn.selected { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+        .edit-select { width: 100%; background: var(--surface-2); border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-family: var(--font-body); font-size: 15px; outline: none; -webkit-appearance: none; margin-top: 4px; }
+        .edit-select:focus { border-color: rgba(232,148,10,0.4); }
     </style>
 </head>
 <body>
@@ -412,6 +421,21 @@
                 <button class="ql-send" id="ql-send" disabled onclick="sendQL()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit entry modal -->
+    <div id="edit-modal" class="ql-modal" style="display:none;">
+        <div class="ql-inner" style="max-height:92vh;">
+            <div class="ql-header">
+                <span class="ql-title" id="edit-modal-title">Edit entry</span>
+                <button class="ql-close" onclick="closeEditModal()">&#x2715;</button>
+            </div>
+            <div id="edit-modal-body" class="ql-body" style="gap:0;padding-bottom:8px;"></div>
+            <div style="padding:12px 20px 16px;border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0;">
+                <button class="btn btn-ghost" onclick="closeEditModal()" style="flex:1;">Cancel</button>
+                <button class="btn btn-primary" onclick="saveEditedEntry()" id="edit-save-btn" style="flex:2;">Save changes</button>
             </div>
         </div>
     </div>
@@ -1273,6 +1297,7 @@ function buildLogEntry(e) {
                 <span class="type-badge ${e.type}">${e.type === 'morning' ? '☀ Morning' : '🌤 Afternoon'}</span>
                 <div style="display:flex;align-items:center;gap:10px;">
                     ${e.cycle_day ? `<span style="font-size:12px;color:var(--text-2);">Day ${e.cycle_day}</span>` : ''}
+                    <button onclick="editEntry('${entryId}')" style="background:none;border:none;color:var(--text-2);font-size:15px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Edit">✎</button>
                     <button onclick="deleteEntry('${entryId}')" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Delete">✕</button>
                 </div>
             </div>
@@ -1310,10 +1335,27 @@ function renderSettings() {
     const sbKey = localStorage.getItem('sb_key') || '';
     const notifEnabled = Notification?.permission === 'granted';
     const savedAboutMe = localStorage.getItem('about_me') || '';
+    const profileHeight = localStorage.getItem('profile_height') || '';
+    const profileStartWeight = localStorage.getItem('profile_start_weight') || '';
+    const profileGoalWeight = localStorage.getItem('profile_goal_weight') || '';
 
     el.innerHTML = `
         <h2 style="margin-bottom:6px;">Setup</h2>
         <p style="color:var(--text-2);font-size:13px;margin-bottom:24px;">Configure your Daily OS</p>
+
+        <div class="card" style="margin-bottom:12px;">
+            <h3 style="margin-bottom:10px;">Your profile</h3>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:14px;">
+                Gives Claude context when interpreting your numbers and tracking progress.
+            </p>
+            <label style="font-size:12px;color:var(--text-2);font-weight:600;letter-spacing:.04em;">HEIGHT (cm)</label>
+            <input type="number" class="text-input" id="profile-height" value="${esc(profileHeight)}" placeholder="e.g. 168" min="100" max="250" inputmode="decimal" style="margin-top:6px;margin-bottom:14px;">
+            <label style="font-size:12px;color:var(--text-2);font-weight:600;letter-spacing:.04em;">STARTING WEIGHT (kg)</label>
+            <input type="number" class="text-input" id="profile-start-weight" value="${esc(profileStartWeight)}" placeholder="e.g. 82.0" min="30" max="300" inputmode="decimal" style="margin-top:6px;margin-bottom:14px;">
+            <label style="font-size:12px;color:var(--text-2);font-weight:600;letter-spacing:.04em;">GOAL WEIGHT (kg)</label>
+            <input type="number" class="text-input" id="profile-goal-weight" value="${esc(profileGoalWeight)}" placeholder="e.g. 68.0" min="30" max="300" inputmode="decimal" style="margin-top:6px;margin-bottom:14px;">
+            <button class="btn btn-primary" onclick="saveProfile()">Save profile</button>
+        </div>
 
         <div class="card" style="margin-bottom:12px;">
             <h3 style="margin-bottom:10px;">About me</h3>
@@ -1535,7 +1577,7 @@ async function runWeeklySynthesis() {
         return parts.join(' ');
     }).join('\n');
 
-    const customContext = aboutMe ? `\n\nUser context: ${aboutMe}` : '';
+    const customContext = (aboutMe ? `\n\nUser context: ${aboutMe}` : '') + getProfileContext();
     const systemPrompt = `You are a personal behaviour coach analysing a week of tracking data for Nik, a 37-year-old woman in Agnes Water, Queensland.
 
 About Nik: ADHD, autism, binge eating disorder, PMDD, depression, hypersensitivity/anxiety. On Ozempic, Prozac, Vyvanse. Runs her own business. Goals: weight loss, fitness, business consistency, better habits.${customContext}
@@ -1592,6 +1634,27 @@ function saveAboutMe() {
     aboutMe = val;
     localStorage.setItem('about_me', val);
     showToast('Saved ✓');
+}
+
+function saveProfile() {
+    const h = document.getElementById('profile-height').value.trim();
+    const sw = document.getElementById('profile-start-weight').value.trim();
+    const gw = document.getElementById('profile-goal-weight').value.trim();
+    if (h) localStorage.setItem('profile_height', h); else localStorage.removeItem('profile_height');
+    if (sw) localStorage.setItem('profile_start_weight', sw); else localStorage.removeItem('profile_start_weight');
+    if (gw) localStorage.setItem('profile_goal_weight', gw); else localStorage.removeItem('profile_goal_weight');
+    showToast('Profile saved ✓');
+}
+
+function getProfileContext() {
+    const h = localStorage.getItem('profile_height');
+    const sw = localStorage.getItem('profile_start_weight');
+    const gw = localStorage.getItem('profile_goal_weight');
+    const parts = [];
+    if (h) parts.push(`Height: ${h}cm`);
+    if (sw) parts.push(`Starting weight: ${sw}kg`);
+    if (gw) parts.push(`Goal weight: ${gw}kg`);
+    return parts.length ? '\nProfile stats: ' + parts.join(', ') : '';
 }
 
 // ============================================================
@@ -1712,7 +1775,7 @@ function buildQLSystemPrompt() {
     const lastCycle = recent.find(e => e.cycle_day);
     const phaseInfo = lastCycle ? `Current cycle day approximately ${lastCycle.cycle_day} (logged ${lastCycle.entry_date})` : 'Cycle day unknown';
 
-    const customContext = aboutMe ? `\n\nAdditional context (user-provided):\n${aboutMe}` : '';
+    const customContext = (aboutMe ? `\n\nAdditional context (user-provided):\n${aboutMe}` : '') + getProfileContext();
     return `You are a personal behaviour coach inside a daily tracking app for Nik, a 37-year-old woman in Agnes Water, Queensland.
 
 About Nik:
@@ -1802,6 +1865,153 @@ async function saveQuickLog() {
     }
     qlSaving = false;
 }
+// ============================================================
+// EDIT ENTRY
+// ============================================================
+let editingId = null;
+let editingData = {};
+
+function editEntry(id) {
+    const entry = entries.find(e => e.id === id);
+    if (!entry) { showToast("Can't find that entry"); return; }
+    if (entry.type === 'quicklog') { showToast("Quick logs can't be edited — they're conversation transcripts"); return; }
+    editingId = id;
+    editingData = { ...entry };
+    document.getElementById('edit-modal-title').textContent =
+        entry.type === 'morning' ? 'Edit morning entry' : 'Edit afternoon entry';
+    renderEditModal(entry);
+    document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+    editingId = null;
+    editingData = {};
+}
+
+function renderEditModal(e) {
+    const body = document.getElementById('edit-modal-body');
+    const isMorning = e.type === 'morning';
+
+    // Helper builders — all inline to avoid variable-name clashes with outer scope
+    const numField = (label, key, val, min, max) =>
+        `<div class="edit-field"><label class="edit-label">${label}</label>` +
+        `<input type="number" class="text-input" style="margin-top:4px;" min="${min ?? ''}" max="${max ?? ''}" inputmode="decimal"` +
+        ` value="${val ?? ''}" placeholder="(optional)"` +
+        ` oninput="editingData['${key}']=this.value.trim()!==''?parseFloat(this.value):null"></div>`;
+
+    const textField = (label, key, val) =>
+        `<div class="edit-field"><label class="edit-label">${label}</label>` +
+        `<input type="text" class="text-input" style="margin-top:4px;" value="${esc(val || '')}" placeholder="(optional)"` +
+        ` oninput="editingData['${key}']=this.value.trim()||null"></div>`;
+
+    const textareaField = (label, key, val) =>
+        `<div class="edit-field"><label class="edit-label">${label}</label>` +
+        `<textarea class="text-input" rows="3" style="margin-top:4px;" placeholder="(optional)"` +
+        ` oninput="editingData['${key}']=this.value.trim()||null">${esc(val || '')}</textarea></div>`;
+
+    const scaleField = (label, key, val) => {
+        const btns = [1,2,3,4,5].map(n =>
+            `<button class="edit-scale-btn${val==n?' selected':''}"` +
+            ` onclick="this.parentNode.querySelectorAll('.edit-scale-btn').forEach(b=>b.classList.remove('selected'));` +
+            `this.classList.add('selected');editingData['${key}']=${n};">${n}</button>`
+        ).join('');
+        return `<div class="edit-field"><label class="edit-label">${label}</label><div class="edit-scale-row">${btns}</div></div>`;
+    };
+
+    const selField = (label, key, val, opts) => {
+        const options = opts.map(o => `<option value="${o.v}"${val===o.v?' selected':''}>${o.l}</option>`).join('');
+        return `<div class="edit-field"><label class="edit-label">${label}</label>` +
+            `<select class="edit-select" onchange="editingData['${key}']=this.value||null">${options}</select></div>`;
+    };
+
+    let h = '';
+
+    if (isMorning) {
+        h += numField('Cycle day', 'cycle_day', e.cycle_day, 1, 35);
+        h += numField('Sleep score (0–100)', 'sleep_score', e.sleep_score, 0, 100);
+        h += numField('Body battery (0–100)', 'body_battery', e.body_battery, 0, 100);
+        h += selField('HRV status', 'hrv_status', e.hrv_status, [
+            {v:'',l:'(skip)'},{v:'poor',l:'Poor'},{v:'low',l:'Low'},
+            {v:'balanced',l:'Balanced'},{v:'good',l:'Good'}]);
+        h += selField('Recovery advisory', 'recovery_advisory', e.recovery_advisory, [
+            {v:'',l:'(skip)'},{v:'recover',l:'Recover'},{v:'maintain',l:'Maintain'},{v:'push',l:'Push'}]);
+        h += numField('Steps yesterday', 'steps_yesterday', e.steps_yesterday, 0, null);
+        h += numField('Weight (kg)', 'weight', e.weight, 30, 300);
+    }
+
+    h += scaleField('Mood', 'mood', e.mood);
+    h += textField('Mood note', 'mood_note', e.mood_note);
+    h += scaleField('Energy', 'energy', e.energy);
+    h += textField('Energy note', 'energy_note', e.energy_note);
+
+    if (isMorning) {
+        h += textField('Work intention', 'work_intention', e.work_intention);
+        h += textField('Body intention', 'body_intention', e.body_intention);
+    } else {
+        h += selField('Focus quality', 'focus_quality', e.focus_quality, [
+            {v:'',l:'(skip)'},{v:'on_target',l:'On target'},{v:'scattered',l:'Scattered'},
+            {v:'hyperfocused',l:'Hyperfocused'},{v:'checked_out',l:'Checked out'}]);
+        h += selField('Food awareness', 'body_awareness', e.body_awareness, [
+            {v:'',l:'(skip)'},{v:'checked_in',l:'Checked in'},{v:'drifted',l:'Drifted'},{v:'autopilot',l:'Autopilot'}]);
+        h += selField('Movement', 'movement', e.movement, [
+            {v:'',l:'(skip)'},{v:'yes',l:'Yes, properly'},{v:'a_bit',l:'A bit'},{v:'no',l:'Not today'}]);
+        h += selField('Work status', 'work_status', e.work_status, [
+            {v:'',l:'(skip)'},{v:'done',l:'Done'},{v:'in_progress',l:'In progress'},{v:'didnt_happen',l:"Didn't happen"}]);
+        h += textareaField('Notes', 'note', e.note);
+    }
+
+    body.innerHTML = h;
+}
+
+async function saveEditedEntry() {
+    if (!editingId) return;
+    if (!editingData.mood || !editingData.energy) { showToast('Mood and energy are required'); return; }
+    const btn = document.getElementById('edit-save-btn');
+    if (btn) btn.disabled = true;
+
+    // Never overwrite immutable fields
+    const toSave = { ...editingData };
+    delete toSave.id;
+    delete toSave.created_at;
+    delete toSave.entry_date;
+
+    try {
+        if (editingId.startsWith('local_') || editingId.startsWith('saved_')) {
+            const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+            const idx = local.findIndex(e => e.id === editingId);
+            if (idx !== -1) {
+                local[idx] = { ...local[idx], ...toSave };
+                localStorage.setItem('local_entries', JSON.stringify(local));
+            } else {
+                showToast('Entry not found in local storage');
+                if (btn) btn.disabled = false;
+                return;
+            }
+        } else if (sbClient) {
+            const { error } = await sbClient.from('daily_checkins').update(toSave).eq('id', editingId);
+            if (error) { showToast('Could not save — try again'); if (btn) btn.disabled = false; return; }
+        } else {
+            showToast('Not connected — cannot save edit');
+            if (btn) btn.disabled = false;
+            return;
+        }
+        // Update in-memory array
+        const idx = entries.findIndex(e => e.id === editingId);
+        if (idx !== -1) entries[idx] = { ...entries[idx], ...toSave };
+
+        showToast('Saved ✓');
+        closeEditModal();
+        if (currentView === 'log') renderLog();
+        if (currentView === 'checkin') { getTodayEntries(); renderCheckIn(); }
+    } catch(err) {
+        console.error('Edit save error:', err);
+        showToast('Something went wrong');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 // ============================================================
 // INIT
 // ============================================================
