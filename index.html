@@ -1891,12 +1891,20 @@ async function uploadLocalToSupabase() {
     let skipped = 0;
     const errors = [];
 
+    // Same allowed columns as migrateLocalToSupabase — strips nulls so NOT NULL columns don't fail
+    const allowedKeys = [
+        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
+        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
+        'weight','work_intention','body_intention','focus_quality','body_awareness',
+        'movement','work_status','note'
+    ];
+
     for (const entry of local) {
-        // Strip the local_ id so Supabase generates a real UUID
-        const toInsert = { ...entry };
-        delete toInsert.id;
-        // Supabase doesn't accept created_at overrides via anon key by default — let it set its own
-        delete toInsert.created_at;
+        // Strip local_ id and created_at; only send schema columns with non-null values
+        const toInsert = {};
+        allowedKeys.forEach(k => {
+            if (entry[k] !== null && entry[k] !== undefined) toInsert[k] = entry[k];
+        });
 
         try {
             const { error } = await sbClient.from('daily_checkins').insert([toInsert]);
