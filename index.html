@@ -1410,6 +1410,14 @@ function renderSettings() {
 
         <div class="card" style="margin-bottom:12px;">
             <h3 style="margin-bottom:14px;">Data</h3>
+            ${sbClient ? `
+            <div class="settings-row">
+                <div>
+                    <div class="settings-label">Upload local data to Supabase</div>
+                    <div class="settings-sub">Push entries saved on this device before you connected</div>
+                </div>
+                <button class="btn btn-ghost btn-sm" id="upload-local-btn" onclick="uploadLocalToSupabase()">Upload</button>
+            </div>` : ''}
             <div class="settings-row">
                 <div>
                     <div class="settings-label">Export data</div>
@@ -1420,7 +1428,7 @@ function renderSettings() {
             <div class="settings-row">
                 <div>
                     <div class="settings-label">Clear local data</div>
-                    <div class="settings-sub">Removes entries not yet in Supabase</div>
+                    <div class="settings-sub">Removes entries saved only on this device</div>
                 </div>
                 <button class="btn btn-ghost btn-sm" style="color:var(--negative);" onclick="clearLocal()">Clear</button>
             </div>
@@ -1433,6 +1441,39 @@ function renderSettings() {
     if (ta) ta.value = savedAboutMe;
 }
 
+async function migrateLocalToSupabase() {
+    if (!sbClient) return;
+    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    if (!local.length) return;
+
+    showToast('Uploading ' + local.length + ' local entries to Supabase…');
+
+    // Strip local-only id fields so Supabase assigns real UUIDs
+    const toInsert = local.map(({ id, ...rest }) => rest);
+
+    // Insert in batches of 20 to stay within payload limits
+    let uploaded = 0;
+    for (let i = 0; i < toInsert.length; i += 20) {
+        const batch = toInsert.slice(i, i + 20);
+        try {
+            const { error } = await sbClient.from('daily_checkins').insert(batch);
+            if (!error) {
+                uploaded += batch.length;
+            } else {
+                console.error('Migration batch error:', error.message);
+            }
+        } catch(err) {
+            console.error('Migration batch exception:', err);
+        }
+    }
+
+    if (uploaded > 0) {
+        // Clear local entries now they are safely in Supabase
+        localStorage.removeItem('local_entries');
+        showToast(uploaded + ' entries synced to Supabase ✓');
+    }
+}
+
 function saveSupabaseConfig() {
     const url = document.getElementById('sb-url').value.trim();
     const key = document.getElementById('sb-key').value.trim();
@@ -1440,8 +1481,14 @@ function saveSupabaseConfig() {
     localStorage.setItem('sb_url', url);
     localStorage.setItem('sb_key', key);
     if (initSupabase()) {
-        showToast('Connected ✓');
-        loadEntries().then(() => renderSettings());
+        // Migrate any locally-stored entries up to Supabase first, then reload
+        migrateLocalToSupabase().then(() => {
+            loadEntries().then(() => {
+                renderSettings();
+                if (currentView === 'checkin') renderCheckIn();
+                if (currentView === 'log') renderLog();
+            });
+        });
     } else {
         showToast('Could not connect — check your details');
     }
@@ -1510,6 +1557,62 @@ function clearLocal() {
             if (currentView === 'checkin') renderCheckIn();
         }
     }
+}
+
+// ============================================================
+// UPLOAD LOCAL DATA TO SUPABASE
+// ============================================================
+async function uploadLocalToSupabase() {
+    if (!sbClient) { showToast('Connect Supabase first'); return; }
+    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    if (!local.length) { showToast('No local entries to upload'); return; }
+
+    const btn = document.getElementById('upload-local-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
+
+    let uploaded = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (const entry of local) {
+        // Strip the local_ id so Supabase generates a real UUID
+        const toInsert = { ...entry };
+        delete toInsert.id;
+        // Supabase doesn't accept created_at overrides via anon key by default — let it set its own
+        delete toInsert.created_at;
+
+        try {
+            const { error } = await sbClient.from('daily_checkins').insert([toInsert]);
+            if (error) {
+                // Skip duplicates gracefully (unique constraint violations)
+                if (error.code === '23505') { skipped++; }
+                else { errors.push(error.message); }
+            } else {
+                uploaded++;
+            }
+        } catch(e) {
+            errors.push(e.message);
+        }
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Upload'; }
+
+    if (errors.length) {
+        showToast(`${uploaded} uploaded, ${errors.length} failed`);
+        console.error('Upload errors:', errors);
+        return;
+    }
+
+    const msg = skipped
+        ? `${uploaded} uploaded, ${skipped} already existed`
+        : `${uploaded} entries uploaded ✓`;
+    showToast(msg);
+
+    // Reload from Supabase so everything is now visible
+    await loadEntries();
+    if (currentView === 'log') renderLog();
+    if (currentView === 'checkin') renderCheckIn();
+    renderSettings();
 }
 
 // ============================================================
@@ -2021,6 +2124,8 @@ async function init() {
     }
     initSupabase();
     aboutMe = localStorage.getItem('about_me') || '';
+    // If Supabase is already connected, silently migrate any leftover local entries
+    if (sbClient) await migrateLocalToSupabase();
     await loadEntries();
     renderCheckIn();
     if (Notification?.permission === 'granted') setTimeout(scheduleNotifications, 1000);
