@@ -1102,10 +1102,11 @@ function renderInsights() {
         <p style="color:var(--text-2);font-size:13px;margin-bottom:16px;">${entries.length} entries logged</p>
 
         <div class="card" style="margin-bottom:20px;">
-            <h3 style="margin-bottom:10px;">Weekly read</h3>
-            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">Claude reads your last 7 days — numbers, notes, all of it — and tells you what it actually sees.</p>
-            <button class="btn btn-primary" onclick="runWeeklySynthesis()" style="width:auto;padding:12px 20px;">Generate weekly read</button>
+            <h3 style="margin-bottom:10px;">Pattern read</h3>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">Claude reads your recent data — numbers, notes, all of it — and tells you what it actually sees. Run it any time.</p>
+            <button class="btn btn-primary" onclick="runWeeklySynthesis()" style="width:auto;padding:12px 20px;">Generate pattern read</button>
             <div id="synthesis-result"></div>
+            <div id="synthesis-history"></div>
         </div>
 
         ${phase ? `
@@ -1184,6 +1185,8 @@ function renderInsights() {
     `;
 
     renderTrendChart();
+    renderSynthesisHistory();
+    restoreLastPatternRead();
 }
 
 function renderTrendChart() {
@@ -1702,13 +1705,13 @@ async function runWeeklySynthesis() {
 
 About Nik: ADHD, autism, binge eating disorder, PMDD, depression, hypersensitivity/anxiety. On Ozempic, Prozac, Vyvanse. Runs her own business. Goals: weight loss, fitness, business consistency, better habits.${customContext}
 
-Analyse the data below and give Nik a genuine, useful weekly read. Structure it as:
+Analyse the data below and give Nik a genuine, useful pattern read. Structure it as:
 
 **What I'm seeing** (2-3 sentences — actual patterns, not summaries. Connect dots. Reference specific data points.)
 
-**The thing worth paying attention to** (1-2 sentences — the most important signal in this week's data)
+**The thing worth paying attention to** (1-2 sentences — the most important signal in this data)
 
-**One thing to try this week** (1 sentence — specific, small, evidence-based. Not generic advice.)
+**One thing to try right now** (1 sentence — specific, small, evidence-based. Not generic advice.)
 
 Be direct. No fluff. No "great job logging!" No bullet points within sections. Write like a smart mate who knows the research, not a wellness app.`;
 
@@ -1718,7 +1721,7 @@ Be direct. No fluff. No "great job logging!" No bullet points within sections. W
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 system: systemPrompt,
-                messages: [{ role: 'user', content: `Here is my last 7 days of data:\n\n${dataText}\n\nGive me my weekly read.` }],
+                messages: [{ role: 'user', content: `Here is my recent tracking data:\n\n${dataText}\n\nGive me my pattern read.` }],
                 max_tokens: 400
             })
         });
@@ -1737,12 +1740,70 @@ Be direct. No fluff. No "great job logging!" No bullet points within sections. W
             .replace(/\n\n/g, '</p><p style="margin-top:14px;">')
             .replace(/\n/g, '<br>');
 
+        const tsLabel = new Date().toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
         el.innerHTML = `<div style="margin-top:16px;background:var(--surface-2);border-radius:14px;padding:18px;border:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text);"><p>${rendered}</p></div>
-        <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Based on ${last7.length} entries from the last 7 days</p>`;
+        <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Based on ${last7.length} entries · ${tsLabel}</p>`;
+
+        // Save to history
+        const reads = JSON.parse(localStorage.getItem('pattern_reads') || '[]');
+        reads.unshift({ ts: Date.now(), label: tsLabel, html: el.innerHTML });
+        // Keep last 20
+        localStorage.setItem('pattern_reads', JSON.stringify(reads.slice(0, 20)));
+        renderSynthesisHistory();
     } catch(e) {
         el.innerHTML = '<p style="color:var(--text-2);font-size:14px;margin-top:16px;">Could not connect — check your internet and try again.</p>';
     } finally {
         synthesisRunning = false;
+    }
+}
+
+// ============================================================
+// PATTERN READ — history and restore
+// ============================================================
+function restoreLastPatternRead() {
+    const el = document.getElementById('synthesis-result');
+    if (!el || el.innerHTML.trim()) return; // don't overwrite if already populated (e.g. just generated)
+    const reads = JSON.parse(localStorage.getItem('pattern_reads') || '[]');
+    if (!reads.length) return;
+    el.innerHTML = reads[0].html;
+}
+
+function renderSynthesisHistory() {
+    const container = document.getElementById('synthesis-history');
+    if (!container) return;
+    const reads = JSON.parse(localStorage.getItem('pattern_reads') || '[]');
+    if (reads.length <= 1) { container.innerHTML = ''; return; }
+
+    // Show all but the current (index 0 is always in synthesis-result)
+    const past = reads.slice(1);
+    const items = past.map((r, i) => `
+        <div style="margin-top:8px;">
+            <button onclick="toggleHistoryItem(${i+1})"
+                style="background:none;border:none;color:var(--text-2);font-size:12px;cursor:pointer;
+                       padding:6px 0;display:flex;align-items:center;gap:6px;width:100%;">
+                <span style="font-size:10px;color:var(--text-3);">▶</span>
+                <span>${esc(r.label)}</span>
+            </button>
+            <div id="history-item-${i+1}" style="display:none;">${r.html}</div>
+        </div>`).join('');
+
+    container.innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+        <h3 style="margin-bottom:8px;">Previous reads</h3>
+        ${items}
+    </div>`;
+}
+
+function toggleHistoryItem(i) {
+    const el = document.getElementById('history-item-' + i);
+    if (!el) return;
+    const btn = el.previousElementSibling;
+    const arrow = btn ? btn.querySelector('span') : null;
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (arrow) arrow.textContent = '▼';
+    } else {
+        el.style.display = 'none';
+        if (arrow) arrow.textContent = '▶';
     }
 }
 
