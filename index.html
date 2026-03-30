@@ -922,7 +922,8 @@ function renderCheckIn() {
                 '<button class="btn btn-ghost btn-sm" onclick="navigate(\'insights\')">Patterns →</button>' +
                 '<button class="btn btn-ghost btn-sm" onclick="navigate(\'log\')">Full log →</button>' +
                 nextBtn +
-            '</div>';
+            '</div>' +
+            (sbClient ? '<div style="margin-top:8px;"><button id="sync-btn" onclick="syncNow(this)" style="background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;padding:4px 0;">\u21bb Sync from Supabase</button></div>' : '');
         return;
     }
 
@@ -3145,6 +3146,27 @@ async function init() {
     renderCheckIn();
     if (Notification?.permission === 'granted') setTimeout(scheduleNotifications, 1000);
 }
+
+async function syncNow(btn) {
+    if (!sbClient) return;
+    if (btn) { btn.textContent = '↻ Syncing...'; btn.disabled = true; }
+    await loadEntries();
+    if (currentView === 'checkin') renderCheckIn();
+    if (currentView === 'insights') renderInsights();
+    if (currentView === 'log') renderLog();
+    showToast('Synced ✓');
+}
+
+// Re-sync from Supabase when app comes back to foreground (tab/app switch)
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && sbClient) {
+        await loadEntries();
+        // Re-render whichever view is active so new data shows immediately
+        if (currentView === 'checkin') renderCheckIn();
+        if (currentView === 'insights') renderInsights();
+        if (currentView === 'log') renderLog();
+    }
+});
 
 init();
 </script>
