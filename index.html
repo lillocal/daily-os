@@ -1448,29 +1448,46 @@ async function migrateLocalToSupabase() {
 
     showToast('Uploading ' + local.length + ' local entries to Supabase…');
 
-    // Strip local-only id fields so Supabase assigns real UUIDs
-    const toInsert = local.map(({ id, ...rest }) => rest);
+    // Only include columns the schema actually has; drop local-only fields
+    const allowedKeys = [
+        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
+        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
+        'weight','work_intention','body_intention','focus_quality','body_awareness',
+        'movement','work_status','note'
+    ];
 
-    // Insert in batches of 20 to stay within payload limits
+    const toInsert = local.map(e => {
+        const row = {};
+        allowedKeys.forEach(k => {
+            // Only include the key if it has an actual value (skip null/undefined)
+            if (e[k] !== null && e[k] !== undefined) row[k] = e[k];
+        });
+        return row;
+    });
+
+    // Insert one at a time so a single bad entry doesn't block the rest
     let uploaded = 0;
-    for (let i = 0; i < toInsert.length; i += 20) {
-        const batch = toInsert.slice(i, i + 20);
+    let lastError = '';
+    for (const row of toInsert) {
         try {
-            const { error } = await sbClient.from('daily_checkins').insert(batch);
+            const { error } = await sbClient.from('daily_checkins').insert([row]);
             if (!error) {
-                uploaded += batch.length;
+                uploaded++;
             } else {
-                console.error('Migration batch error:', error.message);
+                lastError = error.message;
+                console.error('Migration row error:', error.message, row);
             }
         } catch(err) {
-            console.error('Migration batch exception:', err);
+            lastError = String(err);
+            console.error('Migration row exception:', err);
         }
     }
 
     if (uploaded > 0) {
-        // Clear local entries now they are safely in Supabase
         localStorage.removeItem('local_entries');
-        showToast(uploaded + ' entries synced to Supabase ✓');
+        showToast(uploaded + ' of ' + local.length + ' entries synced ✓');
+    } else if (lastError) {
+        showToast('Sync failed: ' + lastError.slice(0, 60));
     }
 }
 
