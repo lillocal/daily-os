@@ -1197,8 +1197,7 @@ async function getCheckInObservation(d) {
         if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
         if (e.weight) parts.push(`weight:${e.weight}kg`);
         return parts.join(' ');
-    }).join('
-');
+    }).join('\n');
 
     const todayEntry = Object.entries(d).filter(([k,v]) => v != null).map(([k,v]) => `${k}: ${v}`).join(', ');
     const healthCtx = getHealthHistoryContext();
@@ -2100,8 +2099,7 @@ async function runFullAnalysis() {
         if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
         if (e.note) parts.push(`note:"${e.note}"`);
         return parts.join(' ');
-    }).join('
-');
+    }).join('\n');
 
     const customContext = (aboutMe ? `
 
@@ -2149,11 +2147,8 @@ Give me the full analysis.` }],
             .replace(/>/g, '&gt;');
         const rendered = safeText
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/
-
-/g, '</p><p style="margin-top:14px;">')
-            .replace(/
-/g, '<br>');
+            .replace(/\n\n/g, '</p><p style="margin-top:14px;">')
+            .replace(/\n/g, '<br>');
 
         const tsLabel = new Date().toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
         el.innerHTML = `<div style="margin-top:16px;background:var(--surface-2);border-radius:14px;padding:18px;border:1px solid rgba(155,124,219,0.2);font-size:14px;line-height:1.7;color:var(--text);"><p>${rendered}</p></div>
