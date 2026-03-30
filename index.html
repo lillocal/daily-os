@@ -406,6 +406,34 @@
         .spot-scale-btn.selected { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
         .spot-label { font-family: var(--font-display); font-size: 26px; font-weight: 300; line-height: 1.2; margin-bottom: 4px; margin-top: 18px; }
         .spot-sub { color: var(--text-2); font-size: 13px; margin-bottom: 2px; }
+
+        /* Health history */
+        .hh-section { margin-bottom: 16px; }
+        .hh-section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px; }
+        .hh-tag { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: 13px; margin: 3px 4px 3px 0; color: var(--text); }
+        .hh-tag.flagged { background: rgba(204,85,85,0.1); border-color: rgba(204,85,85,0.3); color: var(--negative); }
+        .hh-tag.borderline { background: rgba(232,148,10,0.1); border-color: rgba(232,148,10,0.3); color: var(--accent); }
+        .hh-tag.normal { background: rgba(92,170,111,0.08); border-color: rgba(92,170,111,0.2); color: var(--positive); }
+        .hh-tag .hh-del { background: none; border: none; color: inherit; opacity: 0.5; cursor: pointer; font-size: 12px; padding: 0 0 0 4px; line-height: 1; }
+        .hh-tag .hh-del:hover { opacity: 1; }
+        .upload-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 11px 18px; border-radius: 10px;
+            background: var(--surface-2); border: 1.5px dashed rgba(240,220,160,0.2);
+            color: var(--text-2); font-family: var(--font-body); font-size: 14px;
+            font-weight: 500; cursor: pointer; transition: all 0.15s;
+        }
+        .upload-btn:active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+        .review-panel { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; }
+        .review-panel h3 { margin-bottom: 12px; }
+        .result-row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .result-row:last-child { border-bottom: none; }
+        .result-name { color: var(--text-2); flex: 1; }
+        .result-val { font-weight: 600; margin: 0 8px; }
+        .result-flag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .result-flag.low, .result-flag.high { color: var(--negative); }
+        .result-flag.borderline { color: var(--accent); }
+        .result-flag.normal { color: var(--positive); }
     </style>
 </head>
 <body>
@@ -531,7 +559,7 @@
 // ============================================================
 // STATE
 // ============================================================
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.8.0';
 
 // HTML escape helper — used wherever user-generated text is injected into innerHTML
 function esc(str) {
@@ -824,20 +852,20 @@ function navigate(view) {
 // ============================================================
 function buildGarminSnap(m) {
     if (!m) return '';
-    if (!m.sleep_score && !m.body_battery && !m.steps_yesterday && !m.weight) return '';
+    if (m.sleep_score == null && m.body_battery == null && m.steps_yesterday == null && !m.weight) return '';
 
     let metrics = '';
-    if (m.sleep_score) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:#9b7cdb;">' + m.sleep_score + '</div><div class="metric-label">Sleep</div></div>';
-    if (m.body_battery) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;">' + m.body_battery + '</div><div class="metric-label">Battery</div></div>';
-    if (m.steps_yesterday) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:22px;color:var(--text-2);">' + Number(m.steps_yesterday).toLocaleString() + '</div><div class="metric-label">Steps</div></div>';
+    if (m.sleep_score != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:#9b7cdb;">' + m.sleep_score + '</div><div class="metric-label">Sleep</div></div>';
+    if (m.body_battery != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;">' + m.body_battery + '</div><div class="metric-label">Battery</div></div>';
+    if (m.steps_yesterday != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:22px;color:var(--text-2);">' + Number(m.steps_yesterday).toLocaleString() + '</div><div class="metric-label">Steps</div></div>';
     if (m.weight) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:var(--positive);">' + m.weight + '</div><div class="metric-label">kg</div></div>';
 
     let hrv = '';
     if (m.hrv_status || m.recovery_advisory) {
         hrv = '<div style="margin-top:10px;font-size:13px;color:var(--text-2);">';
-        if (m.hrv_status) hrv += 'HRV: <strong style="color:var(--text);">' + m.hrv_status + '</strong>';
+        if (m.hrv_status) hrv += 'HRV: <strong style="color:var(--text);">' + esc(m.hrv_status) + '</strong>';
         if (m.hrv_status && m.recovery_advisory) hrv += ' &nbsp;·&nbsp; ';
-        if (m.recovery_advisory) hrv += 'Advisory: <strong style="color:var(--text);">' + m.recovery_advisory + '</strong>';
+        if (m.recovery_advisory) hrv += 'Advisory: <strong style="color:var(--text);">' + esc(m.recovery_advisory) + '</strong>';
         hrv += '</div>';
     }
 
@@ -860,14 +888,20 @@ function renderCheckIn() {
     if (alreadyDone) {
         const bothDone = todayEntries.morning && todayEntries.afternoon;
         const m = todayEntries.morning;
-        const todayQLs = entries.filter(e => (e.entry_date || e.created_at?.split('T')[0]) === todayStr() && e.type === 'quicklog');
+        const todayStr_ = todayStr();
+        const todayQLs = entries.filter(e => (e.entry_date || e.created_at?.split('T')[0]) === todayStr_ && e.type === 'quicklog');
+        const todaySpots = entries.filter(e => (e.entry_date || e.created_at?.split('T')[0]) === todayStr_ && e.type === 'spot');
 
         const garminSnap = buildGarminSnap(m);
         const moodRow = m ? '<div style="display:flex;gap:16px;"><div style="font-size:12px;color:var(--text-2);">Mood <strong style="color:var(--accent);font-size:16px;">' + (m.mood||'–') + '</strong></div><div style="font-size:12px;color:var(--text-2);">Energy <strong style="color:var(--positive);font-size:16px;">' + (m.energy||'–') + '</strong></div></div>' : '';
         const statusMsg = bothDone ? 'Both check-ins logged' : checkInType === 'morning' ? 'Morning logged — back at 4pm' : 'All done for today';
         const nextType = checkInType === 'morning' ? 'afternoon' : 'morning';
         const nextBtn = !bothDone ? '<button class="btn btn-ghost btn-sm" onclick="forceCheckIn(\'' + nextType + '\')">Log ' + nextType + ' \u2192</button>' : '';
-        const qlSection = todayQLs.length ? '<div class="section-header"><h3>Quick logs today (' + todayQLs.length + ')</h3></div>' + todayQLs.map(buildLogEntry).join('') : '';
+        const qlCount = todayQLs.length + todaySpots.length;
+        const qlSection = qlCount
+            ? (todaySpots.length ? '<div class="section-header"><h3>Spot check-ins today (' + todaySpots.length + ')</h3></div>' + todaySpots.map(buildLogEntry).join('') : '')
+              + (todayQLs.length ? '<div class="section-header"><h3>Quick logs today (' + todayQLs.length + ')</h3></div>' + todayQLs.map(buildLogEntry).join('') : '')
+            : '';
 
         el.innerHTML =
             '<div style="margin-bottom:20px;">' +
@@ -1415,8 +1449,8 @@ function buildLogEntry(e) {
                 ${e.body_battery ? `<div class="me-stat"><span>Battery</span><strong style="color:#e8940a;">${e.body_battery}</strong></div>` : ''}
                 ${e.steps_yesterday ? `<div class="me-stat"><span>Steps</span><strong style="color:var(--text-2);">${Number(e.steps_yesterday).toLocaleString()}</strong></div>` : ''}
                 ${e.weight ? `<div class="me-stat"><span>Weight</span><strong style="color:var(--positive);">${e.weight}kg</strong></div>` : ''}
-                ${e.hrv_status ? `<div class="me-stat"><span>HRV</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${e.hrv_status}</strong></div>` : ''}
-                ${e.recovery_advisory ? `<div class="me-stat"><span>Recovery</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${e.recovery_advisory}</strong></div>` : ''}
+                ${e.hrv_status ? `<div class="me-stat"><span>HRV</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${esc(e.hrv_status)}</strong></div>` : ''}
+                ${e.recovery_advisory ? `<div class="me-stat"><span>Recovery</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${esc(e.recovery_advisory)}</strong></div>` : ''}
             </div>` : ''}
             <div class="me-row">
                 <div class="me-stat"><span>Mood</span><strong style="color:var(--accent);">${e.mood}</strong></div>
@@ -1450,6 +1484,24 @@ function renderSettings() {
     el.innerHTML = `
         <h2 style="margin-bottom:6px;">Setup</h2>
         <p style="color:var(--text-2);font-size:13px;margin-bottom:24px;">Configure your Daily OS</p>
+
+        <div class="card" style="margin-bottom:12px;" id="hh-card">
+            <h3 style="margin-bottom:6px;">Health history</h3>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:14px;">
+                Upload blood tests, assessments, GP letters. Claude extracts the key findings automatically and uses them to spot connections between your symptoms and your health data.
+            </p>
+            <label class="upload-btn" id="upload-label">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload medical document (PDF)
+                <input type="file" id="medical-upload" accept=".pdf,application/pdf" style="display:none;" onchange="handleMedicalUpload(this)">
+            </label>
+            <div id="hh-processing" style="display:none;margin-top:12px;font-size:13px;color:var(--text-2);">
+                <div class="dot-pulse" style="display:inline-flex;gap:5px;vertical-align:middle;margin-right:8px;"><span></span><span></span><span></span></div>
+                Reading document...
+            </div>
+            <div id="hh-review" style="display:none;"></div>
+            <div id="hh-current" style="margin-top:14px;"></div>
+        </div>
 
         <div class="card" style="margin-bottom:12px;">
             <h3 style="margin-bottom:10px;">Your profile</h3>
@@ -1547,6 +1599,8 @@ function renderSettings() {
     // Set textarea value safely via JS to avoid HTML injection
     const ta = document.getElementById('about-me-input');
     if (ta) ta.value = savedAboutMe;
+    // Render current health history (uses DOM so must run after innerHTML)
+    renderHealthHistoryCurrent();
 }
 
 async function migrateLocalToSupabase() {
@@ -1805,10 +1859,12 @@ async function runWeeklySynthesis() {
         return parts.join(' ');
     }).join('\n');
 
-    const customContext = (aboutMe ? `\n\nUser context: ${aboutMe}` : '') + getProfileContext();
+    const customContext = (aboutMe ? `\n\nUser context: ${aboutMe}` : '') + getProfileContext() + getHealthHistoryContext();
     const systemPrompt = `You are a personal behaviour coach analysing a week of tracking data for Nik, a 37-year-old woman in Agnes Water, Queensland.
 
 About Nik: ADHD, autism, binge eating disorder, PMDD, depression, hypersensitivity/anxiety. On Ozempic, Prozac, Vyvanse. Runs her own business. Goals: weight loss, fitness, business consistency, better habits.${customContext}
+
+Medical correlation: If patterns in the data connect to known health history (e.g. recurring fatigue + flagged bloods, mood dips + hormonal cycle, low energy + low androstenedione), name the connection explicitly. This is the point — joining dots the user might not see.
 
 Analyse the data below and give Nik a genuine, useful pattern read. Structure it as:
 
@@ -1849,9 +1905,9 @@ Be direct. No fluff. No "great job logging!" No bullet points within sections. W
         el.innerHTML = `<div style="margin-top:16px;background:var(--surface-2);border-radius:14px;padding:18px;border:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text);"><p>${rendered}</p></div>
         <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Based on ${last7.length} entries · ${tsLabel}</p>`;
 
-        // Save to history
+        // Save to history — store plain text (not HTML) to prevent XSS via localStorage tampering
         const reads = JSON.parse(localStorage.getItem('pattern_reads') || '[]');
-        reads.unshift({ ts: Date.now(), label: tsLabel, html: el.innerHTML });
+        reads.unshift({ ts: Date.now(), label: tsLabel, text: text, entryCount: last7.length });
         // Keep last 20
         localStorage.setItem('pattern_reads', JSON.stringify(reads.slice(0, 20)));
         renderSynthesisHistory();
@@ -1863,14 +1919,387 @@ Be direct. No fluff. No "great job logging!" No bullet points within sections. W
 }
 
 // ============================================================
+// HEALTH HISTORY
+// ============================================================
+
+function getHealthHistory() {
+    try { return JSON.parse(localStorage.getItem('health_history') || '{}'); }
+    catch { return {}; }
+}
+
+function saveHealthHistory(hh) {
+    localStorage.setItem('health_history', JSON.stringify(hh));
+}
+
+function getHealthHistoryContext() {
+    const hh = getHealthHistory();
+    const parts = [];
+
+    if (hh.diagnoses && hh.diagnoses.length) {
+        parts.push('Diagnoses: ' + hh.diagnoses.join(', '));
+    }
+    if (hh.medications && hh.medications.length) {
+        parts.push('Medications: ' + hh.medications.map(m => `${m.name}${m.dose ? ' ' + m.dose : ''} (${m.purpose || 'purpose not recorded'})`).join(', '));
+    }
+    // Only inject flagged/abnormal blood results — saves tokens
+    const flagged = (hh.blood_results || []).filter(r => r.flag === 'low' || r.flag === 'high' || r.flag === 'borderline');
+    if (flagged.length) {
+        parts.push('Flagged lab results: ' + flagged.map(r =>
+            `${r.test} ${r.value}${r.unit ? ' ' + r.unit : ''} (range ${r.range}) — ${r.flag}${r.note ? ': ' + r.note : ''} [${r.date || 'undated'}]`
+        ).join('; '));
+    }
+    if (hh.flagged_findings && hh.flagged_findings.length) {
+        parts.push('Other notable findings: ' + hh.flagged_findings.join('; '));
+    }
+
+    return parts.length ? '\n\nHealth history:\n' + parts.join('\n') : '';
+}
+
+async function handleMedicalUpload(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    // Reset input so same file can be re-uploaded
+    input.value = '';
+
+    const processing = document.getElementById('hh-processing');
+    const review = document.getElementById('hh-review');
+    const label = document.getElementById('upload-label');
+
+    if (processing) processing.style.display = 'block';
+    if (review) review.style.display = 'none';
+    if (label) label.style.pointerEvents = 'none';
+
+    // Rough size check client-side (6MB)
+    if (file.size > 6_000_000) {
+        if (processing) processing.style.display = 'none';
+        if (label) label.style.pointerEvents = '';
+        showToast('File too large — max 6MB. Try splitting it.');
+        return;
+    }
+
+    // Read as base64
+    const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            // result is "data:application/pdf;base64,XXXX" — strip the prefix
+            const result = reader.result;
+            const commaIdx = result.indexOf(',');
+            resolve(commaIdx !== -1 ? result.slice(commaIdx + 1) : result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+
+    try {
+        const res = await fetch('/.netlify/functions/parse-medical', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                pdf_base64: base64,
+                media_type: file.type || 'application/pdf',
+                filename: file.name
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(err.error || 'Server error ' + res.status);
+        }
+
+        const data = await res.json();
+        if (processing) processing.style.display = 'none';
+        if (label) label.style.pointerEvents = '';
+
+        renderHHReviewPanel(data.extracted, data.filename);
+
+    } catch(err) {
+        if (processing) processing.style.display = 'none';
+        if (label) label.style.pointerEvents = '';
+        showToast('Could not read document: ' + (err.message || 'try again'));
+        console.error('Medical upload error:', err);
+    }
+}
+
+function renderHHReviewPanel(extracted, filename) {
+    const review = document.getElementById('hh-review');
+    if (!review) return;
+
+    const e = extracted || {};
+    const docTitle = esc(e.doc_title || filename || 'Document');
+    const docDate = esc(e.doc_date || 'Date unknown');
+
+    // Build blood results table if any
+    let bloodHtml = '';
+    if (e.blood_results && e.blood_results.length) {
+        const rows = e.blood_results.map(r => {
+            const flagClass = r.flag === 'normal' || r.flag === 'absent' ? 'normal'
+                : r.flag === 'borderline' ? 'borderline'
+                : (r.flag === 'low' || r.flag === 'high') ? 'low' : '';
+            const flagLabel = r.flag && r.flag !== 'normal' && r.flag !== 'absent' ? r.flag.toUpperCase() : '';
+            return `<div class="result-row">
+                <span class="result-name">${esc(r.test)}</span>
+                <span class="result-val" style="color:${flagClass === 'low' ? 'var(--negative)' : flagClass === 'borderline' ? 'var(--accent)' : flagClass === 'normal' ? 'var(--positive)' : 'var(--text)'};">${esc(String(r.value))}${r.unit ? ' <span style="font-size:11px;font-weight:400;color:var(--text-2);">' + esc(r.unit) + '</span>' : ''}</span>
+                <span class="result-flag ${flagClass}">${flagLabel}</span>
+            </div>`;
+        }).join('');
+        bloodHtml = `<div class="hh-section" style="margin-top:12px;"><div class="hh-section-title">Lab results</div>${rows}</div>`;
+    }
+
+    // Diagnoses
+    let diagHtml = '';
+    if (e.diagnoses && e.diagnoses.length) {
+        diagHtml = `<div class="hh-section"><div class="hh-section-title">Diagnoses</div>${e.diagnoses.map(d => `<span class="hh-tag">${esc(d)}</span>`).join('')}</div>`;
+    }
+
+    // Medications
+    let medHtml = '';
+    if (e.medications && e.medications.length) {
+        medHtml = `<div class="hh-section"><div class="hh-section-title">Medications</div>${e.medications.map(m => `<span class="hh-tag">${esc(m.name)} ${esc(m.dose || '')} <span style="color:var(--text-3);font-size:11px;">${esc(m.purpose || '')}</span></span>`).join('')}</div>`;
+    }
+
+    // Flagged summary
+    let flagHtml = '';
+    if (e.flagged_summary && e.flagged_summary.length) {
+        flagHtml = `<div class="hh-section"><div class="hh-section-title" style="color:var(--negative);">⚠ Notable findings</div>${e.flagged_summary.map(f => `<div style="font-size:13px;color:var(--text);margin-bottom:6px;padding:8px 10px;background:rgba(204,85,85,0.07);border-radius:8px;border-left:2px solid rgba(204,85,85,0.3);">${esc(f)}</div>`).join('')}</div>`;
+    }
+
+    // Other findings
+    let otherHtml = '';
+    if (e.other_findings && e.other_findings.length) {
+        otherHtml = `<div class="hh-section"><div class="hh-section-title">Other findings</div>${e.other_findings.map(f => `<div style="font-size:13px;color:var(--text-2);margin-bottom:4px;">${esc(f)}</div>`).join('')}</div>`;
+    }
+
+    // Store extracted data temporarily on window for the save function
+    window._pendingExtracted = extracted;
+
+    review.innerHTML = `
+        <div class="review-panel">
+            <h3>📄 ${docTitle} <span style="font-size:12px;color:var(--text-3);font-weight:400;">${docDate}</span></h3>
+            ${flagHtml}${diagHtml}${medHtml}${bloodHtml}${otherHtml}
+            <div style="display:flex;gap:8px;margin-top:14px;">
+                <button class="btn btn-primary" onclick="saveHealthHistoryFromReview()" style="flex:2;">Save to health history</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('hh-review').style.display='none';window._pendingExtracted=null;" style="flex:1;">Discard</button>
+            </div>
+        </div>`;
+    review.style.display = 'block';
+    review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function saveHealthHistoryFromReview() {
+    const extracted = window._pendingExtracted;
+    if (!extracted) return;
+
+    const hh = getHealthHistory();
+
+    // Merge diagnoses (dedup by string)
+    if (extracted.diagnoses && extracted.diagnoses.length) {
+        const existing = new Set((hh.diagnoses || []).map(d => d.toLowerCase()));
+        for (const d of extracted.diagnoses) {
+            if (!existing.has(d.toLowerCase())) {
+                (hh.diagnoses = hh.diagnoses || []).push(d);
+                existing.add(d.toLowerCase());
+            }
+        }
+    }
+
+    // Merge medications (dedup by name+dose)
+    if (extracted.medications && extracted.medications.length) {
+        hh.medications = hh.medications || [];
+        const existingMeds = new Set(hh.medications.map(m => (m.name + (m.dose || '')).toLowerCase()));
+        for (const m of extracted.medications) {
+            const key = (m.name + (m.dose || '')).toLowerCase();
+            if (!existingMeds.has(key)) {
+                hh.medications.push(m);
+                existingMeds.add(key);
+            }
+        }
+    }
+
+    // Blood results — add with source date; if same test+date exists, replace
+    if (extracted.blood_results && extracted.blood_results.length) {
+        hh.blood_results = hh.blood_results || [];
+        const docDate = extracted.doc_date || null;
+        for (const r of extracted.blood_results) {
+            const idx = hh.blood_results.findIndex(
+                e => e.test.toLowerCase() === r.test.toLowerCase() && e.date === docDate
+            );
+            const entry = { ...r, date: docDate };
+            if (idx !== -1) hh.blood_results[idx] = entry;
+            else hh.blood_results.push(entry);
+        }
+    }
+
+    // Flagged findings — merge unique strings
+    if (extracted.flagged_summary && extracted.flagged_summary.length) {
+        hh.flagged_findings = hh.flagged_findings || [];
+        const existingFlags = new Set(hh.flagged_findings.map(f => f.toLowerCase()));
+        for (const f of extracted.flagged_summary) {
+            if (!existingFlags.has(f.toLowerCase())) {
+                hh.flagged_findings.push(f);
+                existingFlags.add(f.toLowerCase());
+            }
+        }
+    }
+
+    // Track sources
+    hh.sources = hh.sources || [];
+    hh.sources.unshift({
+        filename: extracted.doc_title || 'document',
+        date: extracted.doc_date || null,
+        parsed_at: new Date().toISOString()
+    });
+
+    saveHealthHistory(hh);
+    window._pendingExtracted = null;
+
+    const review = document.getElementById('hh-review');
+    if (review) review.style.display = 'none';
+    renderHealthHistoryCurrent();
+    showToast('Health history updated ✓');
+}
+
+function renderHealthHistoryCurrent() {
+    const container = document.getElementById('hh-current');
+    if (!container) return;
+
+    const hh = getHealthHistory();
+    const hasData = (hh.diagnoses && hh.diagnoses.length)
+        || (hh.medications && hh.medications.length)
+        || (hh.blood_results && hh.blood_results.length)
+        || (hh.flagged_findings && hh.flagged_findings.length);
+
+    if (!hasData) {
+        container.innerHTML = '<p style="font-size:13px;color:var(--text-3);margin-top:8px;">No health history saved yet — upload a document above.</p>';
+        return;
+    }
+
+    let html = '<div style="margin-top:4px;">';
+
+    if (hh.flagged_findings && hh.flagged_findings.length) {
+        html += `<div class="hh-section"><div class="hh-section-title" style="color:var(--negative);">⚠ Notable findings</div>`;
+        html += hh.flagged_findings.map((f, i) =>
+            `<div style="font-size:13px;color:var(--text);margin-bottom:5px;display:flex;justify-content:space-between;align-items:start;gap:8px;"><span style="flex:1;">${esc(f)}</span><button onclick="removeHHItem('flagged_findings',${i})" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:13px;flex-shrink:0;" title="Remove">✕</button></div>`
+        ).join('');
+        html += '</div>';
+    }
+
+    if (hh.diagnoses && hh.diagnoses.length) {
+        html += `<div class="hh-section"><div class="hh-section-title">Diagnoses</div>`;
+        html += hh.diagnoses.map((d, i) =>
+            `<span class="hh-tag">${esc(d)}<button class="hh-del" onclick="removeHHItem('diagnoses',${i})" title="Remove">✕</button></span>`
+        ).join('');
+        html += '</div>';
+    }
+
+    if (hh.medications && hh.medications.length) {
+        html += `<div class="hh-section"><div class="hh-section-title">Medications</div>`;
+        html += hh.medications.map((m, i) =>
+            `<span class="hh-tag">${esc(m.name)} ${esc(m.dose || '')} <span style="color:var(--text-3);font-size:11px;">${esc(m.purpose || '')}</span><button class="hh-del" onclick="removeHHItem('medications',${i})" title="Remove">✕</button></span>`
+        ).join('');
+        html += '</div>';
+    }
+
+    // Blood results — show flagged first, then normal, collapsible
+    if (hh.blood_results && hh.blood_results.length) {
+        const flagged = hh.blood_results.filter(r => r.flag !== 'normal' && r.flag !== 'absent');
+        const normal = hh.blood_results.filter(r => r.flag === 'normal' || r.flag === 'absent');
+        html += `<div class="hh-section"><div class="hh-section-title">Lab results (${hh.blood_results.length})</div>`;
+        if (flagged.length) {
+            html += flagged.map((r, i) => {
+                const globalIdx = hh.blood_results.indexOf(r);
+                const flagClass = r.flag === 'borderline' ? 'borderline' : 'flagged';
+                return `<div class="hh-tag ${flagClass}" style="display:flex;justify-content:space-between;width:calc(100% - 8px);margin-right:0;">
+                    <span>${esc(r.test)}: <strong>${esc(String(r.value))} ${esc(r.unit || '')}</strong> (${esc(r.flag)}${r.date ? ' · ' + esc(r.date) : ''})</span>
+                    <button class="hh-del" onclick="removeHHItem('blood_results',${globalIdx})" title="Remove">✕</button>
+                </div>`;
+            }).join('');
+        }
+        if (normal.length) {
+            html += `<button onclick="toggleElement('hh-normal-results')" style="background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;padding:4px 0;">${normal.length} normal results ▶</button>`;
+            html += `<div id="hh-normal-results" style="display:none;">`;
+            html += normal.map((r) => {
+                const globalIdx = hh.blood_results.indexOf(r);
+                return `<div class="hh-tag normal" style="display:flex;justify-content:space-between;width:calc(100% - 8px);margin-right:0;">
+                    <span>${esc(r.test)}: ${esc(String(r.value))} ${esc(r.unit || '')}${r.date ? ' · ' + esc(r.date) : ''}</span>
+                    <button class="hh-del" onclick="removeHHItem('blood_results',${globalIdx})" title="Remove">✕</button>
+                </div>`;
+            }).join('');
+            html += '</div>';
+        }
+        html += '</div>';
+    }
+
+    if (hh.sources && hh.sources.length) {
+        html += `<div style="margin-top:8px;font-size:11px;color:var(--text-3);">Sources: ${hh.sources.map(s => esc(s.filename)).join(', ')}</div>`;
+    }
+
+    html += `<button onclick="clearHealthHistory()" style="background:none;border:none;color:var(--negative);font-size:12px;cursor:pointer;margin-top:10px;padding:0;">Clear all health history</button>`;
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
+function removeHHItem(field, idx) {
+    const hh = getHealthHistory();
+    if (hh[field] && hh[field][idx] !== undefined) {
+        hh[field].splice(idx, 1);
+        saveHealthHistory(hh);
+        renderHealthHistoryCurrent();
+    }
+}
+
+function clearHealthHistory() {
+    if (confirm('Clear all stored health history? This cannot be undone.')) {
+        localStorage.removeItem('health_history');
+        renderHealthHistoryCurrent();
+        showToast('Health history cleared');
+    }
+}
+
+function toggleElement(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const btn = el.previousElementSibling;
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        if (btn) btn.textContent = btn.textContent.replace('▶', '▼');
+    } else {
+        el.style.display = 'none';
+        if (btn) btn.textContent = btn.textContent.replace('▼', '▶');
+    }
+}
+
+// ============================================================
 // PATTERN READ — history and restore
 // ============================================================
+function renderPatternReadHtml(text, label, entryCount) {
+    if (!text) return '';
+    const safeText = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    const rendered = safeText
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n\n/g, '</p><p style="margin-top:14px;">')
+        .replace(/\n/g, '<br>');
+    return `<div style="margin-top:16px;background:var(--surface-2);border-radius:14px;padding:18px;border:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text);"><p>${rendered}</p></div>
+        <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Based on ${entryCount} entries · ${esc(label)}</p>`;
+}
+
 function restoreLastPatternRead() {
     const el = document.getElementById('synthesis-result');
-    if (!el || el.innerHTML.trim()) return; // don't overwrite if already populated (e.g. just generated)
+    if (!el || el.innerHTML.trim()) return; // don't overwrite if already populated
     const reads = JSON.parse(localStorage.getItem('pattern_reads') || '[]');
     if (!reads.length) return;
-    el.innerHTML = reads[0].html;
+    const r = reads[0];
+    // Re-render from stored text rather than re-injecting stored HTML
+    if (r.text) {
+        el.innerHTML = renderPatternReadHtml(r.text, r.label, r.entryCount || 0);
+    } else if (r.html) {
+        // Legacy entries stored as HTML — sanitise by stripping script tags before inject
+        el.innerHTML = r.html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    }
 }
 
 function renderSynthesisHistory() {
@@ -1881,7 +2310,14 @@ function renderSynthesisHistory() {
 
     // Show all but the current (index 0 is always in synthesis-result)
     const past = reads.slice(1);
-    const items = past.map((r, i) => `
+    const items = past.map((r, i) => {
+        // Re-render from stored plain text — never inject raw stored HTML
+        const safeHtml = r.text
+            ? renderPatternReadHtml(r.text, r.label, r.entryCount || 0)
+            : r.html
+                ? r.html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                : '';
+        return `
         <div style="margin-top:8px;">
             <button onclick="toggleHistoryItem(${i+1})"
                 style="background:none;border:none;color:var(--text-2);font-size:12px;cursor:pointer;
@@ -1889,8 +2325,9 @@ function renderSynthesisHistory() {
                 <span style="font-size:10px;color:var(--text-3);">▶</span>
                 <span>${esc(r.label)}</span>
             </button>
-            <div id="history-item-${i+1}" style="display:none;">${r.html}</div>
-        </div>`).join('');
+            <div id="history-item-${i+1}" style="display:none;">${safeHtml}</div>
+        </div>`;
+    }).join('');
 
     container.innerHTML = `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
         <h3 style="margin-bottom:8px;">Previous reads</h3>
@@ -2091,6 +2528,10 @@ async function wrapUpQL() {
         document.getElementById('ql-input-row').style.display = 'none';
         await saveQuickLog();
         setTimeout(() => { if (currentView === 'log') renderLog(); }, 400);
+    } else {
+        // AI ignored the wrap instruction — restore the wrap button so user can try again
+        const wrapBtn = document.getElementById('ql-wrap-btn');
+        if (wrapBtn) wrapBtn.style.display = 'block';
     }
 }
 
@@ -2110,7 +2551,7 @@ function buildQLSystemPrompt() {
     const lastCycle = recent.find(e => e.cycle_day);
     const phaseInfo = lastCycle ? `Current cycle day approximately ${lastCycle.cycle_day} (logged ${lastCycle.entry_date})` : 'Cycle day unknown';
 
-    const customContext = (aboutMe ? `\n\nAdditional context (user-provided):\n${aboutMe}` : '') + getProfileContext();
+    const customContext = (aboutMe ? `\n\nAdditional context (user-provided):\n${aboutMe}` : '') + getProfileContext() + getHealthHistoryContext();
     return `You are a personal behaviour coach inside a daily tracking app for Nik, a 37-year-old woman in Agnes Water, Queensland.
 
 About Nik:
@@ -2119,6 +2560,8 @@ About Nik:
 - Runs her own marketing consultancy. Working on weight loss, fitness, business consistency
 - Smart, direct, no-nonsense. Hates being patronised. Voice-to-text user so replies may be casual/rough
 - ${phaseInfo}${customContext}
+
+IMPORTANT — Medical correlation awareness: If Nik reports symptoms that could plausibly connect to her health history (e.g. fatigue + low androstenedione, mood changes + hormonal flags, recurring infections + low neutrophils), gently surface the connection if relevant. Don't lecture. One sentence if relevant, nothing if not.
 
 Recent check-in data:
 ${recentSummary || 'No recent data yet'}
@@ -2290,7 +2733,9 @@ function editEntry(id) {
     editingId = id;
     editingData = { ...entry };
     document.getElementById('edit-modal-title').textContent =
-        entry.type === 'morning' ? 'Edit morning entry' : 'Edit afternoon entry';
+        entry.type === 'morning' ? 'Edit morning entry'
+        : entry.type === 'spot' ? 'Edit spot check-in'
+        : 'Edit afternoon entry';
     renderEditModal(entry);
     document.getElementById('edit-modal').style.display = 'flex';
 }

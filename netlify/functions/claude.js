@@ -1,24 +1,22 @@
 const MODEL = 'claude-sonnet-4-20250514';
 const MAX_TOKENS_LIMIT = 1000;
 
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 exports.handler = async (event) => {
     // Handle CORS preflight
     if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 204,
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type',
-            },
-            body: '',
-        };
+        return { statusCode: 204, headers: CORS_HEADERS, body: '' };
     }
 
     if (event.httpMethod !== 'POST') {
         return {
             statusCode: 405,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify({ error: 'Method not allowed' }),
         };
     }
@@ -27,7 +25,7 @@ exports.handler = async (event) => {
         console.error('ANTHROPIC_API_KEY environment variable not set');
         return {
             statusCode: 500,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify({ error: 'Server configuration error' }),
         };
     }
@@ -38,7 +36,7 @@ exports.handler = async (event) => {
     } catch {
         return {
             statusCode: 400,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify({ error: 'Invalid JSON body' }),
         };
     }
@@ -47,7 +45,7 @@ exports.handler = async (event) => {
     if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
         return {
             statusCode: 400,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify({ error: 'messages array is required' }),
         };
     }
@@ -55,7 +53,7 @@ exports.handler = async (event) => {
     if (!body.system || typeof body.system !== 'string') {
         return {
             statusCode: 400,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify({ error: 'system prompt is required' }),
         };
     }
@@ -86,7 +84,7 @@ exports.handler = async (event) => {
             console.error('Anthropic API error:', response.status, errorText);
             return {
                 statusCode: response.status === 429 ? 429 : 502,
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
                 body: JSON.stringify({
                     error: response.status === 429
                         ? 'Rate limit reached — try again in a moment'
@@ -99,17 +97,14 @@ exports.handler = async (event) => {
 
         return {
             statusCode: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-            },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify(data),
         };
     } catch (err) {
         console.error('Function error:', err);
         return {
             statusCode: 500,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
             body: JSON.stringify({ error: 'Internal server error' }),
         };
     }

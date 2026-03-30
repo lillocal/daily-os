@@ -1,6 +1,6 @@
-# Daily OS
+# Daily OS v1.8.0
 
-Your personal daily check-in, habit tracker, and AI behaviour coach. Logs mood, energy, Garmin health data, cycle phase, movement, and work intentions — twice a day, plus on-demand quick logs with AI follow-up coaching.
+Personal daily check-in, habit tracker, and AI behaviour coach. Logs mood, energy, Garmin health data, cycle phase, movement, work intentions, and on-demand spot check-ins — with AI coaching via quick log and pattern reads.
 
 ---
 
@@ -8,18 +8,19 @@ Your personal daily check-in, habit tracker, and AI behaviour coach. Logs mood, 
 
 | File | Purpose |
 |------|---------|
-| `index.html` | The entire app (single file PWA) |
+| `index.html` | The entire app (single-file PWA) |
 | `manifest.json` | PWA metadata for home screen install |
 | `sw.js` | Service worker — caching and push notifications |
 | `icon.svg` | App icon |
-| `setup.sql` | Supabase database schema |
-| `netlify/functions/claude.js` | Serverless proxy for Claude API calls |
+| `setup.sql` | Supabase database schema (run this first) |
+| `netlify/functions/claude.js` | Serverless proxy for Claude AI (coaching + pattern reads) |
+| `netlify/functions/parse-medical.js` | Serverless function for medical document extraction |
 
 ---
 
 ## Deploy to Netlify
 
-1. Push all files to a GitHub repo (maintain the folder structure — `netlify/functions/claude.js` must be in that path)
+1. Push all files to a GitHub repo — maintain the folder structure exactly (`netlify/functions/` must stay in that path)
 2. Go to [netlify.com](https://netlify.com) → Add new site → Import from Git
 3. No build settings needed — publish directory is `/`, no build command
 4. Go to **Project configuration → Environment variables → Add a variable**
@@ -33,9 +34,11 @@ Your personal daily check-in, habit tracker, and AI behaviour coach. Logs mood, 
 ## Set up Supabase
 
 1. Create a free project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** → paste the full contents of `setup.sql` → Run
-3. Go to **Settings → API Keys** → copy your **Project URL** and **Publishable key**
+2. Go to **SQL Editor** → New query → paste the full contents of `setup.sql` → Run
+3. Go to **Settings → Data API** → copy your **Project URL** and **Publishable (anon) key**
 4. Open your deployed app → **Setup tab** → paste both values → Save & connect
+
+> **Existing install?** Run only the migration section at the bottom of `setup.sql` — each line is safe to re-run.
 
 ---
 
@@ -45,75 +48,66 @@ Your personal daily check-in, habit tracker, and AI behaviour coach. Logs mood, 
 
 **iPhone (Safari only):** Share button → "Add to Home Screen"
 
-Once added, the app opens full screen with no browser UI.
+Once added, opens full screen with no browser UI.
 
 ---
 
 ## Enable notifications
 
-Setup tab → Enable under "Browser push notifications".
-
-Notifications fire at **7am** (morning check-in) and **4pm** (afternoon check-in).
+Setup tab → Enable under "Notifications". Fires at **7am** and **4pm**.
 
 Works reliably on Android. On iPhone requires iOS 16.4+ with the app added to home screen.
 
 ---
 
-## Morning check-in fields
+## Check-in types
 
-| Field | Type | Notes |
-|-------|------|-------|
-| Cycle day | Number | From Flo app |
-| Sleep score | Number 0–100 | From Garmin morning report |
-| Body battery | Number 0–100 | From Garmin |
-| HRV status | Select | Poor / Low / Balanced / Good |
-| Recovery advisory | Select | Recover / Maintain / Push |
-| Steps (yesterday) | Number | From Garmin |
-| Weight | Decimal kg | Before food/drink for consistency |
-| Mood | Scale 1–5 | Optional context note |
-| Energy | Scale 1–5 | Optional context note |
-| Work intention | Text | The one thing that matters today |
-| Body intention | Text | Movement, food, rest |
+### Morning check-in (automatic at 7am / before 1pm)
+Cycle day, sleep score, body battery, HRV status, recovery advisory, steps yesterday, weight, mood (1–5 + note), energy (1–5 + note), work intention, body intention.
 
-## Afternoon check-in fields
+### Afternoon check-in (automatic at 4pm / after 1pm)
+Mood (1–5 + note), energy (1–5 + note), focus quality, food awareness, movement, work status, notes.
 
-| Field | Type | Notes |
-|-------|------|-------|
-| Mood | Scale 1–5 | Optional context note |
-| Energy | Scale 1–5 | Optional context note |
-| Focus quality | Select | On target / Scattered / Hyperfocused / Checked out |
-| Food awareness | Select | Checked in / Drifted / Autopilot |
-| Movement | Select | Yes / A bit / No |
-| Work status | Select | Done / In progress / Didn't happen |
-| Note | Text | Anything worth capturing |
+### Spot check-in (any time via + button → Spot check-in)
+Fast mood + energy snapshot with optional note. No AI, just data. Feeds into all averages and the trend chart. Useful for logging 3–10 times a day — more data means better pattern reads.
+
+### Quick log (any time via + button → Quick log)
+Type or voice-to-text anything. AI coach asks follow-up questions and keeps going as long as you want. Tap "Wrap it up →" to get a pattern observation and one concrete action. Full conversation is saved to your log.
 
 ---
 
-## Quick log (+ button)
+## Insights tab
 
-Available any time from any screen. Type or voice-to-text anything — what you ate, how you're feeling, what happened. Claude asks up to 2 follow-up questions then wraps with a pattern observation and one concrete action. The full conversation is saved to your log.
-
----
-
-## Insights
-
-Once you have a week or two of data the Insights tab shows:
+After a week or two of data:
 - Average mood and energy (14-day rolling)
-- Mood and energy trend chart (14 days)
-- Current cycle phase
 - Movement vs mood comparison
 - Day trajectory (morning-to-afternoon mood delta)
 - Work intention completion rate
-- **Weekly read** — Claude analyses your last 7 days of everything (numbers, notes, cycle phase) and surfaces real patterns with one actionable suggestion
+- Mood and energy trend chart (14 days)
+- Current cycle phase
+
+**Pattern read** — generate any time. Claude reads your recent data and tells you what it actually sees. Pattern + notable finding + one specific action. History of all past reads is saved and accessible.
+
+---
+
+## Health history (Setup tab)
+
+Upload blood tests, psychiatric assessments, GP letters as PDFs. Claude extracts medications, diagnoses, blood results (flagged and normal), and notable findings. Review what was extracted before saving. Flagged results and diagnoses are automatically included in every AI prompt so Claude can spot connections between your symptoms and your health data.
 
 ---
 
 ## About Me (Setup tab)
 
-Free-text field that gets included in every Claude prompt. Update it whenever your situation changes — medications, what's going on in your life, goals, stress levels. The more accurate it is, the smarter the follow-up questions and weekly reads become.
+Free-text field injected into every Claude prompt. Update it when your situation changes — what's going on right now, recent medication changes, stress levels. The more current it is, the better the coaching.
+
+---
+
+## Your profile (Setup tab)
+
+Height, starting weight, goal weight. Used by Claude to interpret weight trends in context.
 
 ---
 
 ## Updating the app
 
-When a new `index.html` is pushed to GitHub, Netlify auto-deploys within ~60 seconds. The service worker uses network-first fetching for `index.html` so updates load immediately on next open — no manual cache clearing needed.
+Push changes to GitHub → Netlify auto-deploys within ~60 seconds. Service worker uses network-first for `index.html` so updates load immediately on next open.

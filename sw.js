@@ -1,5 +1,5 @@
 // Bump this version on every deploy to force cache refresh
-const CACHE_VERSION = 'daily-os-v6';
+const CACHE_VERSION = 'daily-os-v8';
 const STATIC_ASSETS = ['/manifest.json', '/icon.svg'];
 
 // ── Install: pre-cache static assets only (not index.html) ──────────────
@@ -43,6 +43,12 @@ self.addEventListener('fetch', (e) => {
                 })
                 .catch(() => caches.match(e.request)) // offline fallback
         );
+        return;
+    }
+
+    // Never intercept Netlify function calls — they must hit the network
+    if (url.pathname.startsWith('/.netlify/')) {
+        e.respondWith(fetch(e.request));
         return;
     }
 
