@@ -580,6 +580,7 @@ let checkInType = 'morning';
 let checkInData = {};
 let todayEntries = { morning: null, afternoon: null };
 let chartInstance = null;
+let weightChartInstance = null;
 
 // ============================================================
 // CHECK-IN DEFINITIONS
@@ -1144,11 +1145,11 @@ function renderComplete(d) {
                     <div style="font-size:13px;font-weight:600;color:${phase.color};line-height:1;padding-top:8px;">${phase.name}</div>
                 </div>` : ''}
             </div>
-            ${(d.sleep_score || d.body_battery || d.steps_yesterday || d.weight) ? `
+            ${(d.sleep_score != null || d.body_battery != null || d.steps_yesterday != null || d.weight) ? `
             <div style="display:flex;gap:20px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border);">
-                ${d.sleep_score ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Sleep</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:#9b7cdb;line-height:1;">${d.sleep_score}</div></div>` : ''}
-                ${d.body_battery ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Battery</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--accent);line-height:1;">${d.body_battery}</div></div>` : ''}
-                ${d.steps_yesterday ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Steps</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--text-2);line-height:1;">${Number(d.steps_yesterday).toLocaleString()}</div></div>` : ''}
+                ${d.sleep_score != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Sleep</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:#9b7cdb;line-height:1;">${d.sleep_score}</div></div>` : ''}
+                ${d.body_battery != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Battery</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--accent);line-height:1;">${d.body_battery}</div></div>` : ''}
+                ${d.steps_yesterday != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Steps</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--text-2);line-height:1;">${Number(d.steps_yesterday).toLocaleString()}</div></div>` : ''}
                 ${d.weight ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Weight</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--positive);line-height:1;">${d.weight}kg</div></div>` : ''}
             </div>` : ''}
             ${d.work_intention ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;">Work intention</div><div style="font-size:14px;font-style:italic;">"${esc(d.work_intention)}"</div>` : ''}
@@ -1162,10 +1163,72 @@ function renderComplete(d) {
             <div class="phase-name" style="color:${phase.color};">${phase.name}</div>
             <div class="phase-desc">${phase.desc}</div>
         </div>` : ''}
+        <div id="checkin-obs" style="margin-top:12px;"></div>
         <div style="margin-top:12px;">
             <button class="btn btn-ghost btn-sm" onclick="navigate('insights')">See my patterns →</button>
         </div>
     `;
+    // Fire async observation — non-blocking
+    getCheckInObservation(d);
+}
+
+// ============================================================
+// POST-CHECK-IN OBSERVATION
+// ============================================================
+async function getCheckInObservation(d) {
+    const el = document.getElementById('checkin-obs');
+    if (!el) return;
+
+    // Only bother if we have some history to compare against
+    const recent = getRecentEntries(14);
+    if (recent.length < 3) return;
+
+    el.innerHTML = '<div style="margin-top:4px;padding:12px 14px;background:var(--surface-2);border-radius:12px;border:1px solid var(--border);font-size:13px;color:var(--text-3);">Reading your patterns...</div>';
+
+    const recentSummary = recent.slice(0, 14).map(e => {
+        const parts = [`[${e.entry_date} ${e.type}]`];
+        if (e.mood) parts.push(`mood:${e.mood}`);
+        if (e.energy) parts.push(`energy:${e.energy}`);
+        if (e.sleep_score != null) parts.push(`sleep:${e.sleep_score}`);
+        if (e.body_battery != null) parts.push(`battery:${e.body_battery}`);
+        if (e.hrv_status) parts.push(`hrv:${e.hrv_status}`);
+        if (e.movement) parts.push(`movement:${e.movement}`);
+        if (e.work_status) parts.push(`work:${e.work_status}`);
+        if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
+        if (e.weight) parts.push(`weight:${e.weight}kg`);
+        return parts.join(' ');
+    }).join('
+');
+
+    const todayEntry = Object.entries(d).filter(([k,v]) => v != null).map(([k,v]) => `${k}: ${v}`).join(', ');
+    const healthCtx = getHealthHistoryContext();
+    const profileCtx = getProfileContext();
+
+    const systemPrompt = `You are a behaviour coach. Nik just logged a check-in. Give ONE short observation — 1-2 sentences max — about what today's numbers mean in the context of her recent data. Be specific and factual. Reference actual numbers or patterns. No advice. No fluff. No "great job." If there's nothing genuinely interesting to say, return exactly the string "nothing".${healthCtx}${profileCtx}`;
+
+    try {
+        const res = await fetch('/.netlify/functions/claude', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                system: systemPrompt,
+                messages: [{ role: 'user', content: `Today's check-in: ${todayEntry}
+
+Recent history:
+${recentSummary}` }],
+                max_tokens: 120
+            })
+        });
+        if (!res.ok) { el.innerHTML = ''; return; }
+        const data = await res.json();
+        const text = (data.content?.[0]?.text || '').trim();
+        if (!text || text.toLowerCase() === 'nothing') { el.innerHTML = ''; return; }
+
+        const safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        el.innerHTML = `<div style="margin-top:4px;padding:12px 14px;background:var(--surface-2);border-radius:12px;border:1px solid var(--border);font-size:13px;color:var(--text-2);line-height:1.6;font-style:italic;">${safe}</div>`;
+    } catch(e) {
+        el.innerHTML = '';
+    }
 }
 
 // ============================================================
@@ -1220,12 +1283,19 @@ function renderInsights() {
         <h2 style="margin-bottom:4px;">Your patterns</h2>
         <p style="color:var(--text-2);font-size:13px;margin-bottom:16px;">${entries.length} entries logged</p>
 
-        <div class="card" style="margin-bottom:20px;">
+        <div class="card" style="margin-bottom:12px;">
             <h3 style="margin-bottom:10px;">Pattern read</h3>
-            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">Claude reads your recent data — numbers, notes, all of it — and tells you what it actually sees. Run it any time.</p>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">Last 7 days — what Claude actually sees in your numbers and notes.</p>
             <button class="btn btn-primary" onclick="runWeeklySynthesis()" style="width:auto;padding:12px 20px;">Generate pattern read</button>
             <div id="synthesis-result"></div>
             <div id="synthesis-history"></div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+            <h3 style="margin-bottom:6px;">Full analysis</h3>
+            <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">30 days of data + all health history + medical correlations. Claude looks at everything at once and tells you what it sees. Takes 20–30 seconds.</p>
+            <button class="btn btn-primary" onclick="runFullAnalysis()" style="width:auto;padding:12px 20px;background:rgba(155,124,219,0.9);color:#fff;" id="full-analysis-btn">Run full analysis</button>
+            <div id="full-analysis-result"></div>
         </div>
 
         ${phase ? `
@@ -1254,6 +1324,12 @@ function renderInsights() {
             <h3>Mood &amp; energy — last 14 days</h3>
             <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
         </div>
+
+        ${(() => { const wEntries = getRecentEntries(30).filter(e => e.weight); return wEntries.length >= 3 ? `
+        <div class="card">
+            <h3>Weight — last 30 days</h3>
+            <div class="chart-wrap"><canvas id="weight-chart"></canvas></div>
+        </div>` : ''; })()}
 
         ${workRate !== null ? `
         <div class="card">
@@ -1304,6 +1380,7 @@ function renderInsights() {
     `;
 
     renderTrendChart();
+    renderWeightChart();
     renderSynthesisHistory();
     restoreLastPatternRead();
 }
@@ -1348,6 +1425,65 @@ function renderTrendChart() {
             scales: {
                 x: { ticks: { color: '#4a4840', font: { size: 10 }, maxTicksLimit: 7 }, grid: { color: 'rgba(240,220,160,0.03)' } },
                 y: { min: 0, max: 5.5, ticks: { color: '#4a4840', font: { size: 10 }, stepSize: 1, callback: v => v <= 5 ? v : '' }, grid: { color: 'rgba(240,220,160,0.03)' } }
+            }
+        }
+    });
+}
+
+function renderWeightChart() {
+    const canvas = document.getElementById('weight-chart');
+    if (!canvas) return;
+    if (weightChartInstance) { weightChartInstance.destroy(); weightChartInstance = null; }
+
+    const last30 = getRecentEntries(30).filter(e => e.weight);
+    if (last30.length < 3) return;
+
+    // Average weight per day (in case of multiple entries)
+    const byDate = {};
+    last30.forEach(e => {
+        const d = e.entry_date || e.created_at?.split('T')[0];
+        if (!d || !e.weight) return;
+        if (!byDate[d]) byDate[d] = [];
+        byDate[d].push(parseFloat(e.weight));
+    });
+
+    const dates = Object.keys(byDate).sort();
+    const labels = dates.map(d => new Date(d + 'T12:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }));
+    const weights = dates.map(d => {
+        const vals = byDate[d];
+        return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1);
+    });
+
+    // Y-axis: tight range around data
+    const min = Math.floor(Math.min(...weights) - 1);
+    const max = Math.ceil(Math.max(...weights) + 1);
+
+    weightChartInstance = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Weight (kg)',
+                data: weights,
+                borderColor: '#9b7cdb',
+                backgroundColor: 'rgba(155,124,219,0.07)',
+                borderWidth: 2,
+                pointRadius: 3.5,
+                pointBackgroundColor: '#9b7cdb',
+                tension: 0.4,
+                fill: true,
+                spanGaps: true
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { labels: { color: '#9a9480', font: { size: 11, family: 'Plus Jakarta Sans' }, boxWidth: 10 } },
+                tooltip: { backgroundColor: '#242418', borderColor: 'rgba(240,220,160,0.12)', borderWidth: 1, titleColor: '#f0e8d0', bodyColor: '#9a9480', padding: 10 }
+            },
+            scales: {
+                x: { ticks: { color: '#4a4840', font: { size: 10 }, maxTicksLimit: 7 }, grid: { color: 'rgba(240,220,160,0.03)' } },
+                y: { min, max, ticks: { color: '#4a4840', font: { size: 10 }, callback: v => v + 'kg' }, grid: { color: 'rgba(240,220,160,0.03)' } }
             }
         }
     });
@@ -1414,7 +1550,10 @@ function buildLogEntry(e) {
         return `
             <div class="log-entry">
                 <div class="log-entry-header">
-                    <span class="type-badge" style="background:rgba(92,170,111,0.12);color:var(--positive);">📊 Spot</span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="type-badge" style="background:rgba(92,170,111,0.12);color:var(--positive);">📊 Spot</span>
+                        ${e.created_at ? `<span style="font-size:11px;color:var(--text-3);">${new Date(e.created_at).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:true})}</span>` : ''}
+                    </div>
                     <div style="display:flex;align-items:center;gap:10px;">
                         <button onclick="editEntry('${entryId}')" style="background:none;border:none;color:var(--text-2);font-size:15px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Edit">✎</button>
                         <button onclick="deleteEntry('${entryId}')" style="background:none;border:none;color:var(--text-3);font-size:16px;cursor:pointer;padding:4px 6px;border-radius:6px;" title="Delete">✕</button>
@@ -1848,11 +1987,11 @@ async function runWeeklySynthesis() {
         if (e.movement) parts.push(`movement:${e.movement}`);
         if (e.work_status) parts.push(`work:${e.work_status}`);
         if (e.work_intention) parts.push(`intention:"${e.work_intention}"`);
-        if (e.sleep_score) parts.push(`sleep:${e.sleep_score}`);
-        if (e.body_battery) parts.push(`battery:${e.body_battery}`);
+        if (e.sleep_score != null) parts.push(`sleep:${e.sleep_score}`);
+        if (e.body_battery != null) parts.push(`battery:${e.body_battery}`);
         if (e.hrv_status) parts.push(`hrv:${e.hrv_status}`);
         if (e.recovery_advisory) parts.push(`recovery:${e.recovery_advisory}`);
-        if (e.steps_yesterday) parts.push(`steps:${e.steps_yesterday}`);
+        if (e.steps_yesterday != null) parts.push(`steps:${e.steps_yesterday}`);
         if (e.weight) parts.push(`weight:${e.weight}kg`);
         if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
         if (e.note) parts.push(`note:"${e.note}"`);
@@ -1915,6 +2054,121 @@ Be direct. No fluff. No "great job logging!" No bullet points within sections. W
         el.innerHTML = '<p style="color:var(--text-2);font-size:14px;margin-top:16px;">Could not connect — check your internet and try again.</p>';
     } finally {
         synthesisRunning = false;
+    }
+}
+
+// ============================================================
+// FULL ANALYSIS
+// ============================================================
+let fullAnalysisRunning = false;
+
+async function runFullAnalysis() {
+    if (fullAnalysisRunning) return;
+    fullAnalysisRunning = true;
+
+    const btn = document.getElementById('full-analysis-btn');
+    const el = document.getElementById('full-analysis-result');
+    if (!el) { fullAnalysisRunning = false; return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Analysing...'; }
+
+    el.innerHTML = '<div class="bubble-thinking" style="display:inline-flex;padding:14px 18px;border-radius:12px;background:var(--surface-2);margin-top:16px;"><div class="dot-pulse"><span></span><span></span><span></span></div></div>';
+
+    const last30 = getRecentEntries(30);
+    if (last30.length < 3) {
+        el.innerHTML = '<p style="color:var(--text-2);font-size:14px;margin-top:16px;">Not enough data yet — keep logging for a few more days.</p>';
+        fullAnalysisRunning = false;
+        if (btn) { btn.disabled = false; btn.textContent = 'Run full analysis'; }
+        return;
+    }
+
+    const dataText = last30.map(e => {
+        const parts = [`[${e.entry_date} ${e.type}]`];
+        if (e.mood) parts.push(`mood:${e.mood}`);
+        if (e.energy) parts.push(`energy:${e.energy}`);
+        if (e.mood_note) parts.push(`mood note:"${e.mood_note}"`);
+        if (e.energy_note) parts.push(`energy note:"${e.energy_note}"`);
+        if (e.focus_quality) parts.push(`focus:${e.focus_quality}`);
+        if (e.body_awareness) parts.push(`food:${e.body_awareness}`);
+        if (e.movement) parts.push(`movement:${e.movement}`);
+        if (e.work_status) parts.push(`work:${e.work_status}`);
+        if (e.sleep_score != null) parts.push(`sleep:${e.sleep_score}`);
+        if (e.body_battery != null) parts.push(`battery:${e.body_battery}`);
+        if (e.hrv_status) parts.push(`hrv:${e.hrv_status}`);
+        if (e.recovery_advisory) parts.push(`recovery:${e.recovery_advisory}`);
+        if (e.steps_yesterday != null) parts.push(`steps:${e.steps_yesterday}`);
+        if (e.weight) parts.push(`weight:${e.weight}kg`);
+        if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
+        if (e.note) parts.push(`note:"${e.note}"`);
+        return parts.join(' ');
+    }).join('
+');
+
+    const customContext = (aboutMe ? `
+
+User context: ${aboutMe}` : '') + getProfileContext() + getHealthHistoryContext();
+    const systemPrompt = `You are an integrative health analyst with expertise in functional medicine, behavioural psychology, and neurodivergent health. You are analysing 30 days of daily tracking data for Nik, a 37-year-old woman in Agnes Water, Queensland.
+
+About Nik: ADHD, autism, binge eating disorder, PMDD, depression, hypersensitivity/anxiety. On Ozempic, Prozac, Vyvanse. Runs her own marketing consultancy. Goals: weight loss, fitness, business consistency, better habits.${customContext}
+
+Your job: look at everything at once — the tracking data, the health history, the lab results, the medications — and give Nik the most useful analysis you can. This is not a weekly summary. This is a full picture read.
+
+Structure your response as:
+
+**What the data actually shows** (3-4 sentences — real patterns over the full 30 days. Mood trends, energy patterns, movement correlation, weight trajectory, work consistency. Specific, not vague.)
+
+**What's worth investigating** (2-3 sentences — the most clinically interesting signal. Anything where symptoms might connect to lab results, medications, or cycle phase. If her androstenedione is low and she logs flat energy every morning, say it. If her neutrophils are borderline and she logs frequent illness, say it. This is the join-the-dots section.)
+
+**What's working** (1-2 sentences — what does the data show is actually helping? Movement, sleep, specific behaviours. Evidence-based, not cheerleading.)
+
+**One concrete thing worth trying** (1-2 sentences — most evidence-based lever to pull given this specific data. Not generic advice.)
+
+Be direct and clinical. No fluff. No "great job logging." Write like a knowledgeable friend who has read everything, not a wellness app.`;
+
+    try {
+        const res = await fetch('/.netlify/functions/claude', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                system: systemPrompt,
+                messages: [{ role: 'user', content: `Here is my 30 days of tracking data:
+
+${dataText}
+
+Give me the full analysis.` }],
+                max_tokens: 800
+            })
+        });
+        if (!res.ok) throw new Error('Function returned ' + res.status);
+        const data = await res.json();
+        if (!data.content) throw new Error('Unexpected response shape');
+        const text = data.content[0]?.text || 'Could not generate analysis.';
+
+        const safeText = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        const rendered = safeText
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/
+
+/g, '</p><p style="margin-top:14px;">')
+            .replace(/
+/g, '<br>');
+
+        const tsLabel = new Date().toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+        el.innerHTML = `<div style="margin-top:16px;background:var(--surface-2);border-radius:14px;padding:18px;border:1px solid rgba(155,124,219,0.2);font-size:14px;line-height:1.7;color:var(--text);"><p>${rendered}</p></div>
+        <p style="font-size:11px;color:var(--text-3);margin-top:10px;">Based on ${last30.length} entries · ${tsLabel}</p>`;
+
+        // Save to history
+        const analyses = JSON.parse(localStorage.getItem('full_analyses') || '[]');
+        analyses.unshift({ ts: Date.now(), label: tsLabel, text, entryCount: last30.length });
+        localStorage.setItem('full_analyses', JSON.stringify(analyses.slice(0, 10)));
+
+    } catch(e) {
+        el.innerHTML = '<p style="color:var(--text-2);font-size:14px;margin-top:16px;">Could not connect — check your internet and try again.</p>';
+    } finally {
+        fullAnalysisRunning = false;
+        if (btn) { btn.disabled = false; btn.textContent = 'Run full analysis'; }
     }
 }
 
@@ -2567,14 +2821,15 @@ Recent check-in data:
 ${recentSummary || 'No recent data yet'}
 
 Your job when Nik logs something:
-1. Ask ONE short follow-up question to understand what's going on. Be specific, not generic. Max 15 words per question.
-2. Keep asking questions as long as it's useful — the conversation continues until Nik decides to wrap up. There is no forced limit.
-3. When you receive "[Wrap up now]", give: a brief pattern observation (1-2 sentences max, factual not preachy), then ONE concrete small action.
-4. Keep it warm but direct. No lecturing. No paragraphs. No "that's great!" or "I hear you."
-5. Connect to her recent data when relevant — e.g. "this is the third time this week."
+1. Respond as a coach who has been paying attention — sometimes observe, sometimes ask, often both. Lead with what you notice if it's relevant, then follow with a question.
+2. Format: optional 1-sentence observation from her recent data, then 1 short question (max 15 words). Combined max 2 sentences. Never lecture. Never pad.
+3. Keep the conversation going as long as it's useful — no forced limit. Nik decides when to wrap up.
+4. When you receive "[Wrap up now]", give: a brief pattern observation (1-2 sentences, factual not preachy), then ONE concrete small action.
+5. Keep it warm but direct. No "that's great!" No "I hear you." No paragraphs.
+6. Connect to her data specifically — "this is your third low-energy Wednesday" beats "you've been tired recently."
 
 Respond ONLY as valid JSON in this exact format:
-For a follow-up question: {"type":"question","text":"Your question here"}
+For a coaching response: {"type":"question","text":"Your observation (optional) + question here"}
 For the final wrap-up: {"type":"done","text":"Pattern observation here.","action":"One concrete small action here"}
 
 No other text. Only the JSON object.`;
