@@ -574,7 +574,7 @@
 // ============================================================
 // STATE
 // ============================================================
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 
 // HTML escape helper — used wherever user-generated text is injected into innerHTML
 function esc(str) {
@@ -596,6 +596,13 @@ let checkInData = {};
 let todayEntries = { morning: null, afternoon: null };
 let chartInstance = null;
 let weightChartInstance = null;
+let syncInProgress = false;
+
+const PENDING_SYNC_KEYS = {
+    aboutMe: 'pending_about_me_sync',
+    profile: 'pending_profile_sync',
+    healthHistory: 'pending_health_history_sync'
+};
 
 // ============================================================
 // CHECK-IN DEFINITIONS
@@ -757,6 +764,142 @@ function initSupabase() {
     return false;
 }
 
+function getLocalEntries() {
+    try { return JSON.parse(localStorage.getItem('local_entries') || '[]'); }
+    catch { return []; }
+}
+
+function setLocalEntries(local) {
+    localStorage.setItem('local_entries', JSON.stringify(local));
+}
+
+function buildSyncableEntry(entry) {
+    const allowedKeys = [
+        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
+        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
+        'weight','work_intention','body_intention','focus_quality','body_awareness',
+        'movement','work_status','note'
+    ];
+    const row = {};
+    allowedKeys.forEach(k => {
+        if (entry[k] !== null && entry[k] !== undefined) row[k] = entry[k];
+    });
+    return row;
+}
+
+function mergeEntries(remoteEntries, localEntries) {
+    const merged = [...(remoteEntries || []), ...(localEntries || [])];
+    merged.sort((a, b) => {
+        const aTime = new Date(a.created_at || (a.entry_date ? a.entry_date + 'T12:00:00' : 0)).getTime();
+        const bTime = new Date(b.created_at || (b.entry_date ? b.entry_date + 'T12:00:00' : 0)).getTime();
+        return bTime - aTime;
+    });
+    return merged;
+}
+
+function markPendingSync(key) {
+    localStorage.setItem(PENDING_SYNC_KEYS[key], String(Date.now()));
+}
+
+function clearPendingSync(key) {
+    localStorage.removeItem(PENDING_SYNC_KEYS[key]);
+}
+
+function hasPendingSync(key) {
+    return !!localStorage.getItem(PENDING_SYNC_KEYS[key]);
+}
+
+function hasOpenOverlay() {
+    const overlays = ['ql-modal', 'spot-modal', 'edit-modal', 'fab-sheet'];
+    return overlays.some(id => document.getElementById(id)?.style.display === 'flex');
+}
+
+function shouldDeferViewRefresh() {
+    return hasOpenOverlay()
+        || submitInProgress
+        || qlFetching
+        || qlSaving
+        || synthesisRunning
+        || fullAnalysisRunning;
+}
+
+function refreshCurrentView() {
+    if (currentView === 'checkin') renderCheckIn();
+    if (currentView === 'insights') renderInsights();
+    if (currentView === 'log') renderLog();
+    if (currentView === 'settings') renderSettings();
+}
+
+async function syncPendingUserData() {
+    if (!sbClient) return;
+
+    if (hasPendingSync('aboutMe')) {
+        const val = localStorage.getItem('about_me') || '';
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'about_me',
+                value: { text: val },
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            clearPendingSync('aboutMe');
+        } catch(e) {
+            console.warn('about_me Supabase sync failed:', e);
+        }
+    }
+
+    if (hasPendingSync('profile')) {
+        const h = localStorage.getItem('profile_height') || null;
+        const sw = localStorage.getItem('profile_start_weight') || null;
+        const gw = localStorage.getItem('profile_goal_weight') || null;
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'profile',
+                value: { height: h, start_weight: sw, goal_weight: gw },
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            clearPendingSync('profile');
+        } catch(e) {
+            console.warn('profile Supabase sync failed:', e);
+        }
+    }
+
+    if (hasPendingSync('healthHistory')) {
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'health_history',
+                value: getHealthHistory(),
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            clearPendingSync('healthHistory');
+        } catch(e) {
+            console.warn('health_history Supabase sync failed:', e);
+        }
+    }
+}
+
+async function syncAppState(options = {}) {
+    const { showSuccessToast = false, triggerLocalMigration = true } = options;
+    if (!sbClient || syncInProgress) return false;
+
+    syncInProgress = true;
+    try {
+        await syncPendingUserData();
+        if (triggerLocalMigration) await migrateLocalToSupabase({ silent: true });
+        await loadUserSettings();
+        await loadHealthHistoryFromSupabase();
+        await loadEntries();
+        if (!shouldDeferViewRefresh()) refreshCurrentView();
+        if (showSuccessToast) showToast('Synced ✓');
+        return true;
+    } catch (e) {
+        console.error('Sync failed:', e);
+        if (showSuccessToast) showToast('Sync failed — try again');
+        return false;
+    } finally {
+        syncInProgress = false;
+    }
+}
+
 async function saveEntry(data) {
     const withDate = { ...data, entry_date: todayStr() };
     if (sbClient) {
@@ -773,20 +916,21 @@ async function saveEntry(data) {
         }
     }
     // Fallback: local storage
-    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    const local = getLocalEntries();
     const row = { ...withDate, id: `local_${Date.now()}`, created_at: new Date().toISOString() };
     local.unshift(row);
-    localStorage.setItem('local_entries', JSON.stringify(local));
+    setLocalEntries(local);
     return { data: row };
 }
 
 async function loadEntries() {
+    const local = getLocalEntries();
     if (sbClient) {
         try {
             const { data, error } = await sbClient
                 .from('daily_checkins').select('*')
                 .order('created_at', { ascending: false }).limit(120);
-            if (!error && data) { entries = data; return; }
+            if (!error && data) { entries = mergeEntries(data, local); return; }
             if (error) {
                 console.error('Supabase load error:', error.message);
                 showToast('Could not load from Supabase — showing local data');
@@ -795,7 +939,7 @@ async function loadEntries() {
             console.error('Supabase load exception:', err);
         }
     }
-    entries = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    entries = local;
 }
 
 // ============================================================
@@ -1757,34 +1901,20 @@ function renderSettings() {
     renderHealthHistoryCurrent();
 }
 
-async function migrateLocalToSupabase() {
+async function migrateLocalToSupabase(options = {}) {
+    const { silent = false } = options;
     if (!sbClient) return;
-    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    const local = getLocalEntries();
     if (!local.length) return;
 
-    showToast('Uploading ' + local.length + ' local entries to Supabase…');
-
-    // Only include columns the schema actually has; drop local-only fields
-    const allowedKeys = [
-        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
-        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
-        'weight','work_intention','body_intention','focus_quality','body_awareness',
-        'movement','work_status','note'
-    ];
-
-    const toInsert = local.map(e => {
-        const row = {};
-        allowedKeys.forEach(k => {
-            // Only include the key if it has an actual value (skip null/undefined)
-            if (e[k] !== null && e[k] !== undefined) row[k] = e[k];
-        });
-        return row;
-    });
+    if (!silent) showToast('Uploading ' + local.length + ' local entries to Supabase…');
 
     // Insert one at a time so a single bad entry doesn't block the rest
     let uploaded = 0;
     let lastError = '';
-    for (const row of toInsert) {
+    const remainingLocal = [];
+    for (const entry of local) {
+        const row = buildSyncableEntry(entry);
         try {
             const { error } = await sbClient.from('daily_checkins').insert([row]);
             if (!error) {
@@ -1792,36 +1922,41 @@ async function migrateLocalToSupabase() {
             } else {
                 lastError = error.message;
                 console.error('Migration row error:', error.message, row);
+                remainingLocal.push(entry);
             }
         } catch(err) {
             lastError = String(err);
             console.error('Migration row exception:', err);
+            remainingLocal.push(entry);
         }
     }
 
     if (uploaded > 0) {
-        localStorage.removeItem('local_entries');
-        showToast(uploaded + ' of ' + local.length + ' entries synced ✓');
+        if (remainingLocal.length) setLocalEntries(remainingLocal);
+        else localStorage.removeItem('local_entries');
+        if (!silent) {
+            const msg = remainingLocal.length
+                ? `${uploaded} synced, ${remainingLocal.length} kept locally`
+                : `${uploaded} of ${local.length} entries synced ✓`;
+            showToast(msg);
+        }
     } else if (lastError) {
-        showToast('Sync failed: ' + lastError.slice(0, 60));
+        if (!silent) showToast('Sync failed: ' + lastError.slice(0, 60));
     }
+
+    return { uploaded, failed: remainingLocal.length };
 }
 
-function saveSupabaseConfig() {
+async function saveSupabaseConfig() {
     const url = document.getElementById('sb-url').value.trim();
     const key = document.getElementById('sb-key').value.trim();
     if (!url || !key) { showToast('Enter both URL and key'); return; }
     localStorage.setItem('sb_url', url);
     localStorage.setItem('sb_key', key);
     if (initSupabase()) {
-        // Migrate any locally-stored entries up to Supabase first, then reload
-        migrateLocalToSupabase().then(() => {
-            loadEntries().then(() => {
-                renderSettings();
-                if (currentView === 'checkin') renderCheckIn();
-                if (currentView === 'log') renderLog();
-            });
-        });
+        await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
+        renderSettings();
+        if (!shouldDeferViewRefresh()) refreshCurrentView();
     } else {
         showToast('Could not connect — check your details');
     }
@@ -1831,17 +1966,25 @@ async function requestNotifications() {
     if (!('Notification' in window)) { showToast('Not supported in this browser'); return; }
     const perm = await Notification.requestPermission();
     if (perm === 'granted') {
-        scheduleNotifications();
-        showToast('Notifications enabled ✓');
+        const scheduled = await scheduleNotifications();
+        showToast(scheduled ? 'Notifications enabled ✓' : 'Notifications enabled — will start shortly');
         renderSettings();
     } else {
         showToast('Permission denied — check your browser settings');
     }
 }
 
-function scheduleNotifications() {
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: 'SCHEDULE' });
+async function scheduleNotifications() {
+    if (!('serviceWorker' in navigator)) return false;
+    try {
+        const registration = await navigator.serviceWorker.ready;
+        const worker = navigator.serviceWorker.controller || registration.active || registration.waiting || registration.installing;
+        if (!worker) return false;
+        worker.postMessage({ type: 'SCHEDULE' });
+        return true;
+    } catch (e) {
+        console.warn('Could not schedule notifications:', e);
+        return false;
     }
 }
 
@@ -1897,63 +2040,19 @@ function clearLocal() {
 // ============================================================
 async function uploadLocalToSupabase() {
     if (!sbClient) { showToast('Connect Supabase first'); return; }
-    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    const local = getLocalEntries();
     if (!local.length) { showToast('No local entries to upload'); return; }
 
     const btn = document.getElementById('upload-local-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
-
-    let uploaded = 0;
-    let skipped = 0;
-    const errors = [];
-
-    // Same allowed columns as migrateLocalToSupabase — strips nulls so NOT NULL columns don't fail
-    const allowedKeys = [
-        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
-        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
-        'weight','work_intention','body_intention','focus_quality','body_awareness',
-        'movement','work_status','note'
-    ];
-
-    for (const entry of local) {
-        // Strip local_ id and created_at; only send schema columns with non-null values
-        const toInsert = {};
-        allowedKeys.forEach(k => {
-            if (entry[k] !== null && entry[k] !== undefined) toInsert[k] = entry[k];
-        });
-
-        try {
-            const { error } = await sbClient.from('daily_checkins').insert([toInsert]);
-            if (error) {
-                // Skip duplicates gracefully (unique constraint violations)
-                if (error.code === '23505') { skipped++; }
-                else { errors.push(error.message); }
-            } else {
-                uploaded++;
-            }
-        } catch(e) {
-            errors.push(e.message);
-        }
+    try {
+        await migrateLocalToSupabase({ silent: false });
+        await loadEntries();
+        if (!shouldDeferViewRefresh()) refreshCurrentView();
+        renderSettings();
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Upload'; }
     }
-
-    if (btn) { btn.disabled = false; btn.textContent = 'Upload'; }
-
-    if (errors.length) {
-        showToast(`${uploaded} uploaded, ${errors.length} failed`);
-        console.error('Upload errors:', errors);
-        return;
-    }
-
-    const msg = skipped
-        ? `${uploaded} uploaded, ${skipped} already existed`
-        : `${uploaded} entries uploaded ✓`;
-    showToast(msg);
-
-    // Reload from Supabase so everything is now visible
-    await loadEntries();
-    if (currentView === 'log') renderLog();
-    if (currentView === 'checkin') renderCheckIn();
-    renderSettings();
 }
 
 // ============================================================
@@ -1964,8 +2063,8 @@ async function deleteEntry(id) {
     if (!confirm('Delete this entry?')) return;
 
     if (id.startsWith('local_') || id.startsWith('saved_')) {
-        const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
-        localStorage.setItem('local_entries', JSON.stringify(local.filter(e => e.id !== id)));
+        const local = getLocalEntries();
+        setLocalEntries(local.filter(e => e.id !== id));
     } else if (sbClient) {
         const { error } = await sbClient.from('daily_checkins').delete().eq('id', id);
         if (error) { showToast('Could not delete — try again'); return; }
@@ -2203,6 +2302,7 @@ function getHealthHistory() {
 async function saveHealthHistory(hh) {
     // Always write to localStorage first (instant, offline-safe)
     localStorage.setItem('health_history', JSON.stringify(hh));
+    markPendingSync('healthHistory');
     // Also persist to Supabase so other devices see it
     if (sbClient) {
         try {
@@ -2211,6 +2311,7 @@ async function saveHealthHistory(hh) {
                 value: hh,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
+            clearPendingSync('healthHistory');
         } catch(e) {
             console.warn('Health history Supabase sync failed:', e);
         }
@@ -2226,11 +2327,11 @@ async function loadUserSettings() {
             .in('key', ['about_me', 'profile']);
         if (error || !data) return;
         for (const row of data) {
-            if (row.key === 'about_me' && row.value?.text !== undefined) {
+            if (row.key === 'about_me' && row.value?.text !== undefined && !hasPendingSync('aboutMe')) {
                 localStorage.setItem('about_me', row.value.text);
                 aboutMe = row.value.text;
             }
-            if (row.key === 'profile') {
+            if (row.key === 'profile' && !hasPendingSync('profile')) {
                 const p = row.value || {};
                 if (p.height) localStorage.setItem('profile_height', p.height);
                 else localStorage.removeItem('profile_height');
@@ -2254,6 +2355,7 @@ async function loadHealthHistoryFromSupabase() {
             .eq('key', 'health_history')
             .single();
         if (error || !data) return;
+        if (hasPendingSync('healthHistory')) return;
         // Supabase version wins — it's the source of truth across devices
         localStorage.setItem('health_history', JSON.stringify(data.value));
     } catch(e) {
@@ -2581,12 +2683,7 @@ async function removeHHItem(field, idx) {
 
 async function clearHealthHistory() {
     if (confirm('Clear all stored health history? This cannot be undone.')) {
-        localStorage.removeItem('health_history');
-        if (sbClient) {
-            try {
-                await sbClient.from('user_data').delete().eq('key', 'health_history');
-            } catch(e) { console.warn('Could not clear from Supabase:', e); }
-        }
+        await saveHealthHistory({});
         renderHealthHistoryCurrent();
         showToast('Health history cleared');
     }
@@ -2691,6 +2788,7 @@ async function saveAboutMe() {
     const val = document.getElementById('about-me-input').value.trim();
     aboutMe = val;
     localStorage.setItem('about_me', val);
+    markPendingSync('aboutMe');
     if (sbClient) {
         try {
             await sbClient.from('user_data').upsert({
@@ -2698,6 +2796,7 @@ async function saveAboutMe() {
                 value: { text: val },
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
+            clearPendingSync('aboutMe');
         } catch(e) { console.warn('about_me Supabase sync failed:', e); }
     }
     showToast('Saved ✓');
@@ -2710,6 +2809,7 @@ async function saveProfile() {
     if (h) localStorage.setItem('profile_height', h); else localStorage.removeItem('profile_height');
     if (sw) localStorage.setItem('profile_start_weight', sw); else localStorage.removeItem('profile_start_weight');
     if (gw) localStorage.setItem('profile_goal_weight', gw); else localStorage.removeItem('profile_goal_weight');
+    markPendingSync('profile');
     if (sbClient) {
         try {
             await sbClient.from('user_data').upsert({
@@ -2717,6 +2817,7 @@ async function saveProfile() {
                 value: { height: h || null, start_weight: sw || null, goal_weight: gw || null },
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
+            clearPendingSync('profile');
         } catch(e) { console.warn('profile Supabase sync failed:', e); }
     }
     showToast('Profile saved ✓');
@@ -3088,10 +3189,10 @@ async function saveQuickLog() {
             console.error('Supabase quicklog save error:', error?.message);
         }
         // Fallback or non-Supabase path
-        const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+        const local = getLocalEntries();
         const localRow = { ...entry, id: `local_${Date.now()}`, created_at: new Date().toISOString() };
         local.unshift(localRow);
-        localStorage.setItem('local_entries', JSON.stringify(local));
+        setLocalEntries(local);
         entries.unshift(localRow);
     } catch(e) {
         console.error('Save error:', e);
@@ -3295,11 +3396,11 @@ async function saveEditedEntry() {
 
     try {
         if (editingId.startsWith('local_') || editingId.startsWith('saved_')) {
-            const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+            const local = getLocalEntries();
             const idx = local.findIndex(e => e.id === editingId);
             if (idx !== -1) {
                 local[idx] = { ...local[idx], ...toSave };
-                localStorage.setItem('local_entries', JSON.stringify(local));
+                setLocalEntries(local);
             } else {
                 showToast('Entry not found in local storage');
                 if (btn) btn.disabled = false;
@@ -3338,39 +3439,26 @@ async function init() {
     }
     initSupabase();
     aboutMe = localStorage.getItem('about_me') || '';
-    // If Supabase is already connected, silently migrate any leftover local entries
-    if (sbClient) await migrateLocalToSupabase();
-    await loadUserSettings();
-    await loadHealthHistoryFromSupabase();
-    await loadEntries();
+    if (sbClient) await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
+    else await loadEntries();
     renderCheckIn();
-    if (Notification?.permission === 'granted') setTimeout(scheduleNotifications, 1000);
+    if (Notification?.permission === 'granted') setTimeout(() => { scheduleNotifications(); }, 1000);
 }
 
 async function syncNow(btn) {
     if (!sbClient) return;
     if (btn) { btn.textContent = '↻ Syncing...'; btn.disabled = true; }
-    await loadUserSettings();
-    await loadHealthHistoryFromSupabase();
-    await loadEntries();
-    if (currentView === 'checkin') renderCheckIn();
-    if (currentView === 'insights') renderInsights();
-    if (currentView === 'log') renderLog();
-    if (currentView === 'settings') renderSettings();
-    showToast('Synced ✓');
+    try {
+        await syncAppState({ showSuccessToast: true, triggerLocalMigration: true });
+    } finally {
+        if (btn) { btn.textContent = '↻ Sync from Supabase'; btn.disabled = false; }
+    }
 }
 
 // Re-sync from Supabase when app comes back to foreground (tab/app switch)
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible' && sbClient) {
-        await loadUserSettings();
-        await loadHealthHistoryFromSupabase();
-        await loadEntries();
-        // Re-render whichever view is active so new data shows immediately
-        if (currentView === 'checkin') renderCheckIn();
-        if (currentView === 'insights') renderInsights();
-        if (currentView === 'log') renderLog();
-        if (currentView === 'settings') renderSettings();
+        await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
     }
 });
 

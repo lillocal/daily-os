@@ -313,6 +313,14 @@ Running list of bugs caught across multiple audit passes:
 
 ---
 
+## Release Workflow Safety
+
+- Check the live Netlify deploy commit before editing; do not assume the local repo is the latest source of truth
+- If GitHub/Netlify are ahead of local, reconcile that first, then build on top of the reconciled state
+- Keep unsynced local app data visible until Supabase upload actually succeeds; do not clear local fallback data on partial sync failure
+
+---
+
 ## Ideas Not Yet Built (parking lot)
 
 - Export health history as structured PDF report

@@ -1,5 +1,5 @@
 // Bump this version on every deploy to force cache refresh
-const CACHE_VERSION = 'daily-os-v8';
+const CACHE_VERSION = 'daily-os-v9';
 const STATIC_ASSETS = ['/manifest.json', '/icon.svg'];
 
 // ── Install: pre-cache static assets only (not index.html) ──────────────
@@ -64,6 +64,9 @@ let notifTimers = [];
 self.addEventListener('message', (e) => {
     if (e.data?.type === 'SCHEDULE') {
         scheduleAll();
+    }
+    if (e.data?.type === 'SKIP_WAITING') {
+        self.skipWaiting();
     }
 });
 
