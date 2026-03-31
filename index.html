@@ -1954,6 +1954,15 @@ async function saveSupabaseConfig() {
     localStorage.setItem('sb_url', url);
     localStorage.setItem('sb_key', key);
     if (initSupabase()) {
+        const valid = await validateSupabaseConnection();
+        if (!valid) {
+            sbClient = null;
+            localStorage.removeItem('sb_url');
+            localStorage.removeItem('sb_key');
+            showToast('Could not connect â€” check your details and run setup.sql');
+            renderSettings();
+            return;
+        }
         await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
         renderSettings();
         if (!shouldDeferViewRefresh()) refreshCurrentView();
@@ -1999,8 +2008,8 @@ async function exportData() {
             showToast('Export failed — try again');
             return;
         }
-        dataToExport = JSON.stringify(data, null, 2);
-        showToast('Exporting from Supabase...');
+        dataToExport = JSON.stringify(mergeEntries(data, getLocalEntries()), null, 2);
+        showToast('Exporting Supabase + local data...');
     } else {
         dataToExport = localStorage.getItem('local_entries') || '[]';
         showToast('Exporting local data...');
@@ -2018,20 +2027,39 @@ async function exportData() {
 }
 
 function clearLocal() {
-    if (confirm('Clear locally stored entries? Data already synced to Supabase is not affected.')) {
+    const local = getLocalEntries();
+    if (!local.length) { showToast('No local data to clear'); return; }
+
+    const msg = sbClient
+        ? `Clear ${local.length} locally stored entr${local.length === 1 ? 'y' : 'ies'} from this device? Only do this if you're sure they have already synced to Supabase.`
+        : `Clear ${local.length} locally stored entr${local.length === 1 ? 'y' : 'ies'} from this device? This cannot be undone.`;
+
+    if (confirm(msg)) {
         localStorage.removeItem('local_entries');
         if (sbClient) {
             loadEntries().then(() => {
-                if (currentView === 'log') renderLog();
-                if (currentView === 'checkin') renderCheckIn();
+                if (!shouldDeferViewRefresh()) refreshCurrentView();
             });
             showToast('Local data cleared — reloading from Supabase');
         } else {
             entries = [];
             showToast('Local data cleared');
-            if (currentView === 'log') renderLog();
-            if (currentView === 'checkin') renderCheckIn();
+            if (!shouldDeferViewRefresh()) refreshCurrentView();
         }
+    }
+}
+
+async function validateSupabaseConnection() {
+    if (!sbClient) return false;
+    try {
+        const { error } = await sbClient
+            .from('daily_checkins')
+            .select('id')
+            .limit(1);
+        return !error;
+    } catch (e) {
+        console.warn('Supabase validation failed:', e);
+        return false;
     }
 }
 
