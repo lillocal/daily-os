@@ -84,3 +84,21 @@ ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS weight NUMERIC(5,2)
 ALTER TABLE daily_checkins DROP CONSTRAINT IF EXISTS daily_checkins_type_check;
 ALTER TABLE daily_checkins ADD CONSTRAINT daily_checkins_type_check
     CHECK (type IN ('morning', 'afternoon', 'quicklog', 'spot'));
+
+-- v7b: allow null mood/energy — required for quicklog and spot entries
+-- Run this if you see "null value in column mood" sync errors
+ALTER TABLE daily_checkins ALTER COLUMN mood DROP NOT NULL;
+ALTER TABLE daily_checkins ALTER COLUMN energy DROP NOT NULL;
+
+-- user_data table — stores health history and future cross-device settings
+-- Run this if health history isn't syncing between devices
+CREATE TABLE IF NOT EXISTS user_data (
+    key         TEXT PRIMARY KEY,
+    value       JSONB,
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE user_data ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all for personal use"
+    ON user_data FOR ALL USING (true) WITH CHECK (true);

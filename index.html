@@ -353,6 +353,12 @@
         }
         .ql-send:disabled { opacity: 0.35; cursor: default; }
         .ql-send svg { width: 18px; height: 18px; stroke: #121210; }
+        .ql-attach-btn { background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 6px 0 0; flex-shrink: 0; display: flex; align-items: center; transition: color 0.15s; }
+        .ql-attach-btn:active { color: var(--accent); }
+        .ql-attach-btn svg { width: 18px; height: 18px; }
+        .ql-attachment-chip { display: flex; align-items: center; gap: 8px; margin: 0 20px 6px; padding: 6px 12px; background: var(--accent-dim); border: 1px solid rgba(232,148,10,0.2); border-radius: 20px; font-size: 12px; color: var(--accent); flex-shrink: 0; }
+        .ql-attachment-chip span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+        .ql-attachment-chip button { background: none; border: none; color: var(--accent); opacity: 0.6; cursor: pointer; font-size: 13px; padding: 0; flex-shrink: 0; line-height: 1; }
 
         /* Edit entry modal */
         .edit-field { margin-bottom: 18px; }
@@ -485,8 +491,8 @@
             <div class="fab-option" onclick="closeFabSheet();openQuickLog();">
                 <div class="fab-option-icon">⚡</div>
                 <div>
-                    <div class="fab-option-label">Quick log</div>
-                    <div class="fab-option-sub">Chat it through with your coach — keep going as long as you want</div>
+                    <div class="fab-option-label">Chat</div>
+                    <div class="fab-option-sub">Talk it through, analyse a document, or ask anything — attach files too</div>
                 </div>
             </div>
             <div class="fab-option" onclick="closeFabSheet();openSpotCheckIn();">
@@ -513,20 +519,29 @@
         </div>
     </div>
 
-    <!-- Quick log modal -->
+    <!-- Chat / Quick log modal -->
     <div id="ql-modal" class="ql-modal" style="display:none;">
         <div class="ql-inner">
             <div class="ql-header">
-                <span class="ql-title">Quick log</span>
+                <span class="ql-title" id="ql-title">Chat</span>
                 <button class="ql-close" onclick="closeQuickLog()">&#x2715;</button>
             </div>
             <div id="ql-body" class="ql-body"></div>
+            <div id="ql-attachment-chip" class="ql-attachment-chip" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="13" height="13"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                <span id="ql-attachment-name">file.pdf</span>
+                <button onclick="removeQLAttachment()" title="Remove">&#x2715;</button>
+            </div>
             <div style="padding:8px 20px 0;flex-shrink:0;">
                 <button id="ql-wrap-btn" onclick="wrapUpQL()" style="display:none;width:100%;padding:10px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);font-family:var(--font-body);font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.03em;">
                     Wrap it up →
                 </button>
             </div>
             <div class="ql-input-row" id="ql-input-row">
+                <button class="ql-attach-btn" onclick="document.getElementById('ql-file-input').click()" title="Attach file (PDF or image)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                </button>
+                <input type="file" id="ql-file-input" accept=".pdf,application/pdf,image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="handleQLAttachment(this)">
                 <textarea class="ql-textarea" id="ql-input" rows="1" placeholder="What's going on..."
                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQL();}"
                     oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';document.getElementById('ql-send').disabled=!this.value.trim();"
@@ -2185,8 +2200,65 @@ function getHealthHistory() {
     catch { return {}; }
 }
 
-function saveHealthHistory(hh) {
+async function saveHealthHistory(hh) {
+    // Always write to localStorage first (instant, offline-safe)
     localStorage.setItem('health_history', JSON.stringify(hh));
+    // Also persist to Supabase so other devices see it
+    if (sbClient) {
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'health_history',
+                value: hh,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+        } catch(e) {
+            console.warn('Health history Supabase sync failed:', e);
+        }
+    }
+}
+
+async function loadUserSettings() {
+    if (!sbClient) return;
+    try {
+        const { data, error } = await sbClient
+            .from('user_data')
+            .select('key, value')
+            .in('key', ['about_me', 'profile']);
+        if (error || !data) return;
+        for (const row of data) {
+            if (row.key === 'about_me' && row.value?.text !== undefined) {
+                localStorage.setItem('about_me', row.value.text);
+                aboutMe = row.value.text;
+            }
+            if (row.key === 'profile') {
+                const p = row.value || {};
+                if (p.height) localStorage.setItem('profile_height', p.height);
+                else localStorage.removeItem('profile_height');
+                if (p.start_weight) localStorage.setItem('profile_start_weight', p.start_weight);
+                else localStorage.removeItem('profile_start_weight');
+                if (p.goal_weight) localStorage.setItem('profile_goal_weight', p.goal_weight);
+                else localStorage.removeItem('profile_goal_weight');
+            }
+        }
+    } catch(e) {
+        console.warn('Could not load user settings from Supabase:', e);
+    }
+}
+
+async function loadHealthHistoryFromSupabase() {
+    if (!sbClient) return;
+    try {
+        const { data, error } = await sbClient
+            .from('user_data')
+            .select('value')
+            .eq('key', 'health_history')
+            .single();
+        if (error || !data) return;
+        // Supabase version wins — it's the source of truth across devices
+        localStorage.setItem('health_history', JSON.stringify(data.value));
+    } catch(e) {
+        console.warn('Could not load health history from Supabase:', e);
+    }
 }
 
 function getHealthHistoryContext() {
@@ -2344,7 +2416,7 @@ function renderHHReviewPanel(extracted, filename) {
     review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function saveHealthHistoryFromReview() {
+async function saveHealthHistoryFromReview() {
     const extracted = window._pendingExtracted;
     if (!extracted) return;
 
@@ -2408,7 +2480,7 @@ function saveHealthHistoryFromReview() {
         parsed_at: new Date().toISOString()
     });
 
-    saveHealthHistory(hh);
+    await saveHealthHistory(hh);
     window._pendingExtracted = null;
 
     const review = document.getElementById('hh-review');
@@ -2498,18 +2570,23 @@ function renderHealthHistoryCurrent() {
     container.innerHTML = html;
 }
 
-function removeHHItem(field, idx) {
+async function removeHHItem(field, idx) {
     const hh = getHealthHistory();
     if (hh[field] && hh[field][idx] !== undefined) {
         hh[field].splice(idx, 1);
-        saveHealthHistory(hh);
+        await saveHealthHistory(hh);
         renderHealthHistoryCurrent();
     }
 }
 
-function clearHealthHistory() {
+async function clearHealthHistory() {
     if (confirm('Clear all stored health history? This cannot be undone.')) {
         localStorage.removeItem('health_history');
+        if (sbClient) {
+            try {
+                await sbClient.from('user_data').delete().eq('key', 'health_history');
+            } catch(e) { console.warn('Could not clear from Supabase:', e); }
+        }
         renderHealthHistoryCurrent();
         showToast('Health history cleared');
     }
@@ -2610,20 +2687,38 @@ function toggleHistoryItem(i) {
 // ============================================================
 // ABOUT ME — save
 // ============================================================
-function saveAboutMe() {
+async function saveAboutMe() {
     const val = document.getElementById('about-me-input').value.trim();
     aboutMe = val;
     localStorage.setItem('about_me', val);
+    if (sbClient) {
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'about_me',
+                value: { text: val },
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+        } catch(e) { console.warn('about_me Supabase sync failed:', e); }
+    }
     showToast('Saved ✓');
 }
 
-function saveProfile() {
+async function saveProfile() {
     const h = document.getElementById('profile-height').value.trim();
     const sw = document.getElementById('profile-start-weight').value.trim();
     const gw = document.getElementById('profile-goal-weight').value.trim();
     if (h) localStorage.setItem('profile_height', h); else localStorage.removeItem('profile_height');
     if (sw) localStorage.setItem('profile_start_weight', sw); else localStorage.removeItem('profile_start_weight');
     if (gw) localStorage.setItem('profile_goal_weight', gw); else localStorage.removeItem('profile_goal_weight');
+    if (sbClient) {
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'profile',
+                value: { height: h || null, start_weight: sw || null, goal_weight: gw || null },
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+        } catch(e) { console.warn('profile Supabase sync failed:', e); }
+    }
     showToast('Profile saved ✓');
 }
 
@@ -2654,11 +2749,13 @@ function closeFabSheet(e) {
 // ============================================================
 // QUICK LOG
 // ============================================================
-let qlConversation = [];   // {role, content}
+let qlConversation = [];   // {role, content} — content may be string or array (with document)
 let qlFollowUpCount = 0;
 let qlDone = false;
 let qlSaving = false;
 let qlFetching = false;
+let qlAttachment = null;   // { base64, media_type, filename } — pending file to include in next message
+let qlHasDocument = false; // true once a document has been sent in this conversation
 
 function openQuickLog() {
     qlConversation = [];
@@ -2675,6 +2772,14 @@ function openQuickLog() {
     document.getElementById('ql-input').placeholder = "What's going on? (voice or type)";
     const wrapBtn = document.getElementById('ql-wrap-btn');
     if (wrapBtn) wrapBtn.style.display = 'none';
+    qlAttachment = null;
+    qlHasDocument = false;
+    const chip = document.getElementById('ql-attachment-chip');
+    if (chip) chip.style.display = 'none';
+    const fi = document.getElementById('ql-file-input');
+    if (fi) fi.value = '';
+    const title = document.getElementById('ql-title');
+    if (title) title.textContent = 'Chat';
     setTimeout(() => document.getElementById('ql-input').focus(), 300);
 }
 
@@ -2708,6 +2813,53 @@ function removeThinking() {
     if (t) t.remove();
 }
 
+async function handleQLAttachment(input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = ''; // allow re-selecting same file
+
+    // 3MB client limit — leaves room for conversation overhead within Netlify's 6MB body limit
+    if (file.size > 3_000_000) {
+        showToast('File too large for chat — max 3MB. Use Setup → Health history for full documents.');
+        return;
+    }
+
+    const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            const comma = result.indexOf(',');
+            resolve(comma !== -1 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+
+    qlAttachment = { base64, media_type: file.type || 'application/pdf', filename: file.name };
+
+    const chip = document.getElementById('ql-attachment-chip');
+    const nameEl = document.getElementById('ql-attachment-name');
+    if (chip) chip.style.display = 'flex';
+    if (nameEl) nameEl.textContent = file.name;
+
+    // Focus the textarea so user can type their message about the file
+    const input2 = document.getElementById('ql-input');
+    if (input2) {
+        input2.placeholder = 'Ask something about this file...';
+        setTimeout(() => input2.focus(), 100);
+    }
+}
+
+function removeQLAttachment() {
+    qlAttachment = null;
+    const chip = document.getElementById('ql-attachment-chip');
+    if (chip) chip.style.display = 'none';
+    const fi = document.getElementById('ql-file-input');
+    if (fi) fi.value = '';
+    const input = document.getElementById('ql-input');
+    if (input) input.placeholder = "What's going on...";
+}
+
 async function sendQL() {
     const input = document.getElementById('ql-input');
     const text = input.value.trim();
@@ -2717,8 +2869,31 @@ async function sendQL() {
     input.style.height = 'auto';
     document.getElementById('ql-send').disabled = true;
 
+    // Build message content — array if file attached, string otherwise
+    let userContent;
+    if (qlAttachment) {
+        userContent = [
+            { type: 'document', source: { type: 'base64', media_type: qlAttachment.media_type, data: qlAttachment.base64 } },
+            { type: 'text', text }
+        ];
+        // Show attachment bubble + text bubble
+        const attachBubble = document.createElement('div');
+        attachBubble.className = 'bubble bubble-user';
+        attachBubble.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;';
+        attachBubble.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="13" height="13"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg> ' + esc(qlAttachment.filename);
+        document.getElementById('ql-body').appendChild(attachBubble);
+        qlHasDocument = true;
+        qlAttachment = null;
+        const chip = document.getElementById('ql-attachment-chip');
+        if (chip) chip.style.display = 'none';
+        // Update placeholder back
+        input.placeholder = 'Reply...';
+    } else {
+        userContent = text;
+    }
+
     addBubble(text, 'user');
-    qlConversation.push({ role: 'user', content: text });
+    qlConversation.push({ role: 'user', content: userContent });
 
     if (qlDone) return;
 
@@ -2729,7 +2904,7 @@ async function sendQL() {
     qlFetching = false;
 
     if (reply) {
-        if (reply.type === 'question') {
+        if (reply.type === 'question' || reply.type === 'answer') {
             addBubble(reply.text, 'ai');
             qlConversation.push({ role: 'assistant', content: reply.text });
             qlFollowUpCount++;
@@ -2824,19 +2999,28 @@ IMPORTANT — Medical correlation awareness: If Nik reports symptoms that could 
 Recent check-in data:
 ${recentSummary || 'No recent data yet'}
 
-Your job when Nik logs something:
-1. Respond as a coach who has been paying attention — sometimes observe, sometimes ask, often both. Lead with what you notice if it's relevant, then follow with a question.
-2. Format: optional 1-sentence observation from her recent data, then 1 short question (max 15 words). Combined max 2 sentences. Never lecture. Never pad.
-3. Keep the conversation going as long as it's useful — no forced limit. Nik decides when to wrap up.
-4. When you receive "[Wrap up now]", give: a brief pattern observation (1-2 sentences, factual not preachy), then ONE concrete small action.
-5. Keep it warm but direct. No "that's great!" No "I hear you." No paragraphs.
-6. Connect to her data specifically — "this is your third low-energy Wednesday" beats "you've been tired recently."
+How to respond — choose the right mode based on what Nik is doing:
 
-Respond ONLY as valid JSON in this exact format:
-For a coaching response: {"type":"question","text":"Your observation (optional) + question here"}
-For the final wrap-up: {"type":"done","text":"Pattern observation here.","action":"One concrete small action here"}
+COACHING MODE (when Nik logs something that happened or how she's feeling):
+- Lead with 1 observation from her recent data if relevant, then ask 1 specific short question (max 15 words combined).
+- Connect to her data: "third low-energy Wednesday this month" beats "you've been tired."
+- When you receive "[Wrap up now]": give a brief pattern observation (1-2 sentences, factual not preachy) and ONE concrete action.
+- Respond: {"type":"question","text":"observation + question"} or {"type":"done","text":"...","action":"..."}
 
-No other text. Only the JSON object.`;
+ANALYSIS MODE (when Nik shares a document — lab results, reports, medical letters):
+- Read the document thoroughly in the context of her health history and recent tracking data.
+- Connect dots explicitly: if something in the document relates to her symptoms, flagged results, or patterns, name it directly.
+- Be thorough but direct. No padding.
+- Respond: {"type":"answer","text":"your analysis here"}
+
+CONVERSATION MODE (questions, thinking something through, general discussion):
+- Be a direct, smart sounding board. Short unless depth is needed.
+- Respond: {"type":"answer","text":"your response here"}
+
+Always keep the conversation going — Nik decides when to end it via "Wrap it up →".
+Keep it warm but direct. No "that's great!" No "I hear you." No unnecessary paragraphs.
+
+Respond ONLY as valid JSON. No markdown fences. No other text.`;
 }
 
 async function getQLResponse(forceWrapUp = false) {
@@ -2851,7 +3035,8 @@ async function getQLResponse(forceWrapUp = false) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 system: buildQLSystemPrompt(),
-                messages
+                messages,
+                max_tokens: qlHasDocument ? 800 : 300
             })
         });
         if (!res.ok) throw new Error('Function returned ' + res.status);
@@ -2869,7 +3054,20 @@ async function getQLResponse(forceWrapUp = false) {
 async function saveQuickLog() {
     if (qlSaving) return;
     qlSaving = true;
-    const logText = qlConversation.map(m => `${m.role === 'user' ? 'Nik' : 'Coach'}: ${m.content}`).join('\n');
+    // Extract readable text from messages — content may be array (when document was attached)
+    const getContentText = (content) => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+            const docBlock = content.find(b => b.type === 'document');
+            const textBlock = content.find(b => b.type === 'text');
+            const parts = [];
+            if (docBlock) parts.push('[Attached document]');
+            if (textBlock) parts.push(textBlock.text);
+            return parts.join(' ');
+        }
+        return '';
+    };
+    const logText = qlConversation.map(m => `${m.role === 'user' ? 'Nik' : 'Coach'}: ${getContentText(m.content)}`).join('\n');
     const entry = {
         entry_date: todayStr(),
         type: 'quicklog',
@@ -3142,6 +3340,8 @@ async function init() {
     aboutMe = localStorage.getItem('about_me') || '';
     // If Supabase is already connected, silently migrate any leftover local entries
     if (sbClient) await migrateLocalToSupabase();
+    await loadUserSettings();
+    await loadHealthHistoryFromSupabase();
     await loadEntries();
     renderCheckIn();
     if (Notification?.permission === 'granted') setTimeout(scheduleNotifications, 1000);
@@ -3150,21 +3350,27 @@ async function init() {
 async function syncNow(btn) {
     if (!sbClient) return;
     if (btn) { btn.textContent = '↻ Syncing...'; btn.disabled = true; }
+    await loadUserSettings();
+    await loadHealthHistoryFromSupabase();
     await loadEntries();
     if (currentView === 'checkin') renderCheckIn();
     if (currentView === 'insights') renderInsights();
     if (currentView === 'log') renderLog();
+    if (currentView === 'settings') renderSettings();
     showToast('Synced ✓');
 }
 
 // Re-sync from Supabase when app comes back to foreground (tab/app switch)
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible' && sbClient) {
+        await loadUserSettings();
+        await loadHealthHistoryFromSupabase();
         await loadEntries();
         // Re-render whichever view is active so new data shows immediately
         if (currentView === 'checkin') renderCheckIn();
         if (currentView === 'insights') renderInsights();
         if (currentView === 'log') renderLog();
+        if (currentView === 'settings') renderSettings();
     }
 });
 

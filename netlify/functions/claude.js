@@ -1,5 +1,5 @@
 const MODEL = 'claude-sonnet-4-20250514';
-const MAX_TOKENS_LIMIT = 1000;
+const MAX_TOKENS_LIMIT = 2000;
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -8,7 +8,6 @@ const CORS_HEADERS = {
 };
 
 exports.handler = async (event) => {
-    // Handle CORS preflight
     if (event.httpMethod === 'OPTIONS') {
         return { statusCode: 204, headers: CORS_HEADERS, body: '' };
     }
@@ -22,7 +21,6 @@ exports.handler = async (event) => {
     }
 
     if (!process.env.ANTHROPIC_API_KEY) {
-        console.error('ANTHROPIC_API_KEY environment variable not set');
         return {
             statusCode: 500,
             headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
@@ -41,7 +39,6 @@ exports.handler = async (event) => {
         };
     }
 
-    // Validate required fields
     if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
         return {
             statusCode: 400,
@@ -58,8 +55,26 @@ exports.handler = async (event) => {
         };
     }
 
+    // Validate each message: content must be string or array of valid blocks
+    for (const msg of body.messages) {
+        if (!msg.role || !['user', 'assistant'].includes(msg.role)) {
+            return {
+                statusCode: 400,
+                headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+                body: JSON.stringify({ error: 'Invalid message role' }),
+            };
+        }
+        if (typeof msg.content !== 'string' && !Array.isArray(msg.content)) {
+            return {
+                statusCode: 400,
+                headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+                body: JSON.stringify({ error: 'Message content must be string or array' }),
+            };
+        }
+    }
+
     const maxTokens = Math.min(
-        parseInt(body.max_tokens) || 200,
+        parseInt(body.max_tokens) || 300,
         MAX_TOKENS_LIMIT
     );
 
@@ -94,7 +109,6 @@ exports.handler = async (event) => {
         }
 
         const data = await response.json();
-
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
