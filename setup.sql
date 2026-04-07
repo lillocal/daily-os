@@ -90,6 +90,13 @@ ALTER TABLE daily_checkins ADD CONSTRAINT daily_checkins_type_check
 ALTER TABLE daily_checkins ALTER COLUMN mood DROP NOT NULL;
 ALTER TABLE daily_checkins ALTER COLUMN energy DROP NOT NULL;
 
+-- v8: new check-in fields
+ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS water_yesterday INTEGER CHECK (water_yesterday >= 0);
+ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS focus_note TEXT;
+ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS body_note TEXT;
+ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS movement_note TEXT;
+ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS intention_note TEXT;
+
 -- user_data table — stores health history and future cross-device settings
 -- Run this if health history isn't syncing between devices
 CREATE TABLE IF NOT EXISTS user_data (

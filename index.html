@@ -440,6 +440,19 @@
         .result-flag.low, .result-flag.high { color: var(--negative); }
         .result-flag.borderline { color: var(--accent); }
         .result-flag.normal { color: var(--positive); }
+
+        /* Health snapshot step */
+        .snapshot-grid { display:flex; flex-direction:column; gap:14px; margin-top:16px; }
+        .snapshot-row { display:flex; gap:10px; }
+        .snapshot-field { flex:1; display:flex; flex-direction:column; gap:5px; }
+        .snapshot-label { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--text-2); }
+        .snapshot-input { background:var(--surface-2); border:1.5px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text); font-family:var(--font-body); font-size:15px; outline:none; width:100%; transition:border-color .15s; -moz-appearance:textfield; }
+        .snapshot-input::-webkit-outer-spin-button, .snapshot-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+        .snapshot-input:focus { border-color:rgba(232,148,10,.5); }
+        .snapshot-section { margin-top:4px; }
+        .snapshot-options { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+        .snapshot-option-btn { flex:1; min-width:60px; padding:9px 6px; border-radius:10px; background:var(--surface-2); border:2px solid transparent; color:var(--text-2); font-size:13px; font-weight:500; cursor:pointer; text-align:center; transition:all .15s; line-height:1.2; }
+        .snapshot-option-btn.selected { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
     </style>
 </head>
 <body>
@@ -574,7 +587,7 @@
 // ============================================================
 // STATE
 // ============================================================
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 
 // HTML escape helper — used wherever user-generated text is injected into innerHTML
 function esc(str) {
@@ -596,83 +609,46 @@ let checkInData = {};
 let todayEntries = { morning: null, afternoon: null };
 let chartInstance = null;
 let weightChartInstance = null;
+let syncInProgress = false;
+
+const PENDING_SYNC_KEYS = {
+    aboutMe: 'pending_about_me_sync',
+    profile: 'pending_profile_sync',
+    healthHistory: 'pending_health_history_sync'
+};
 
 // ============================================================
 // CHECK-IN DEFINITIONS
 // ============================================================
 const morningSteps = [
     {
-        id: 'cycle_day', type: 'number',
-        question: 'What\'s your cycle day today?',
-        sub: 'Quick check on Flo. Skip if you\'d rather not.',
-        placeholder: 'Day number (1–35)', skippable: true, min: 1, max: 35
-    },
-    {
-        id: 'sleep_score', type: 'number',
-        question: 'Sleep score?',
-        sub: 'From your Garmin morning report.',
-        placeholder: '0–100', skippable: true, min: 0, max: 100
-    },
-    {
-        id: 'body_battery', type: 'number',
-        question: 'Body battery?',
-        sub: 'Your Garmin charge level right now.',
-        placeholder: '0–100', skippable: true, min: 0, max: 100
-    },
-    {
-        id: 'hrv_status', type: 'options',
-        question: 'HRV status?',
-        options: [
-            { value: 'poor',     icon: '▼', label: 'Poor',     sub: 'Needs attention' },
-            { value: 'low',      icon: '↓', label: 'Low',      sub: 'Below baseline' },
-            { value: 'balanced', icon: '→', label: 'Balanced', sub: 'On track' },
-            { value: 'good',     icon: '↑', label: 'Good',     sub: 'Above baseline' },
-        ], skippable: true
-    },
-    {
-        id: 'recovery_advisory', type: 'options',
-        question: 'Recovery advisory?',
-        options: [
-            { value: 'recover',  icon: '●', label: 'Recover',  sub: 'Take it easy today' },
-            { value: 'maintain', icon: '→', label: 'Maintain', sub: 'Keep your usual pace' },
-            { value: 'push',     icon: '↑', label: 'Push',     sub: 'Good day to go harder' },
-        ], skippable: true
-    },
-    {
-        id: 'steps_yesterday', type: 'number',
-        question: 'Yesterday\'s steps?',
-        sub: 'From your Garmin.',
-        placeholder: 'e.g. 8500', skippable: true, min: 0
+        id: 'health_snapshot', type: 'snapshot',
+        question: 'Health snapshot',
+        sub: 'Fill in what you have from Garmin and Hydrate. Everything is optional.',
     },
     {
         id: 'weight', type: 'number',
         question: 'Weight this morning?',
-        sub: 'Optional. Weigh in before food or drink for consistency.',
+        sub: 'Before food or drink for consistency.',
         placeholder: 'kg (e.g. 72.4)', skippable: true, min: 30, max: 300
     },
     {
         id: 'mood', type: 'scale',
-        question: 'How\'s your mood right now?',
+        question: "How's your mood right now?",
         sub: '1 = rough start, 5 = feeling solid',
-        noteId: 'mood_note', notePlaceholder: 'What\'s driving that? (optional)'
+        noteId: 'mood_note', notePlaceholder: "What's driving that? (optional)"
     },
     {
         id: 'energy', type: 'scale',
-        question: 'What\'s your energy like?',
-        sub: '1 = flat, 5 = firing — quality matters too, not just level',
-        noteId: 'energy_note', notePlaceholder: 'e.g. hyperfocused but on the wrong thing, anxious buzz, calm and steady... (optional)'
+        question: "What's your energy like?",
+        sub: '1 = flat, 5 = firing',
+        noteId: 'energy_note', notePlaceholder: 'e.g. anxious buzz, calm and steady, wired but scattered... (optional)'
     },
     {
         id: 'work_intention', type: 'text',
-        question: 'What\'s the one work thing that matters today?',
-        sub: 'Just one. If you only do this, the day counts.',
+        question: 'What matters most today?',
+        sub: 'One thing. Work, personal, anything. If you only do this, the day counts.',
         placeholder: 'e.g. Send the Scaffold Studio proposal', skippable: true
-    },
-    {
-        id: 'body_intention', type: 'text',
-        question: 'What\'s your body intention today?',
-        sub: 'Movement, food, rest — whatever feels relevant right now.',
-        placeholder: 'e.g. Beach walk done, eat something proper for lunch', skippable: true
     },
 ];
 
@@ -681,56 +657,61 @@ const afternoonSteps = [
         id: 'mood', type: 'scale',
         question: 'Mood check. How are you actually feeling?',
         sub: '1 = rough, 5 = solid',
-        noteId: 'mood_note', notePlaceholder: 'What\'s the flavour of it? (optional)'
+        noteId: 'mood_note', notePlaceholder: "What's the flavour of it? (optional)"
     },
     {
         id: 'energy', type: 'scale',
         question: 'Energy right now?',
-        sub: '1 = flat, 5 = still going — what kind of energy is it?',
+        sub: '1 = flat, 5 = still going',
         noteId: 'energy_note', notePlaceholder: 'e.g. wired, scattered, calm, crashing... (optional)'
     },
     {
         id: 'focus_quality', type: 'options',
-        question: 'How well was your energy directed today?',
+        question: 'Where did your focus go today?',
+        noteId: 'focus_note', notePlaceholder: 'Any context? (optional)',
         options: [
-            { value: 'on_target',   icon: '→', label: 'On target',        sub: 'Energy went where it should' },
-            { value: 'scattered',   icon: '~', label: 'Scattered',         sub: 'Busy but not focused on the right things' },
-            { value: 'hyperfocused',icon: '⬤', label: 'Hyperfocused',     sub: 'Deep in something — not necessarily the priority' },
-            { value: 'checked_out', icon: '—', label: 'Checked out',       sub: 'Couldn\'t get traction at all' },
+            { value: 'on_target',    icon: '→', label: 'On the right things',    sub: 'Energy went where it should' },
+            { value: 'scattered',    icon: '~',      label: 'Scattered',               sub: 'Busy but not on the right things' },
+            { value: 'hyperfocused', icon: '⬤', label: 'Deep in something',       sub: 'Not necessarily the priority' },
+            { value: 'checked_out',  icon: '—', label: "Couldn't get traction",   sub: 'Nothing really landed' },
         ]
     },
     {
         id: 'body_awareness', type: 'options',
-        question: 'How\'d you go with food awareness today?',
+        question: 'How did you go with food today?',
+        noteId: 'body_note', notePlaceholder: 'What happened? (optional)',
         options: [
-            { value: 'checked_in', icon: '✓', label: 'Checked in', sub: 'Ate with some awareness' },
-            { value: 'drifted', icon: '~', label: 'Drifted a bit', sub: 'Mostly okay, some autopilot' },
-            { value: 'autopilot', icon: '●', label: 'Full autopilot', sub: 'Wasn\'t really paying attention' },
+            { value: 'checked_in', icon: '✓', label: 'Ate with awareness', sub: 'Checked in with what I was eating' },
+            { value: 'drifted',    icon: '~',      label: 'Drifted a bit',      sub: 'Mostly okay, some autopilot' },
+            { value: 'autopilot',  icon: '●', label: 'Full autopilot',     sub: "Wasn't really paying attention" },
         ]
     },
     {
         id: 'movement', type: 'options',
         question: 'Did you move your body today?',
+        noteId: 'movement_note', notePlaceholder: 'What did you do? (optional)',
         options: [
-            { value: 'yes', icon: '↑', label: 'Yes, properly', sub: 'Walk, swim, exercise — something real' },
-            { value: 'a_bit', icon: '→', label: 'A bit', sub: 'Some movement, not a full session' },
-            { value: 'no', icon: '—', label: 'Not today', sub: 'That\'s alright' },
+            { value: 'yes',   icon: '↑', label: 'Yes, properly', sub: 'Walk, swim, exercise — something real' },
+            { value: 'a_bit', icon: '→', label: 'A bit',         sub: 'Some movement, not a full session' },
+            { value: 'no',    icon: '—', label: 'Not today',     sub: "That's alright" },
         ]
     },
     {
         id: 'work_status', type: 'options',
-        question: 'That one work thing from this morning?',
+        question: 'That intention from this morning — how did it go?',
+        noteId: 'intention_note', notePlaceholder: 'What happened? (optional)',
+        shouldShow: () => !!(todayEntries.morning && todayEntries.morning.work_intention),
         options: [
-            { value: 'done', icon: '✓', label: 'Done', sub: 'Got it across the line' },
-            { value: 'in_progress', icon: '~', label: 'In progress', sub: 'Working on it' },
-            { value: 'didnt_happen', icon: '—', label: 'Didn\'t happen', sub: 'Tomorrow is a new day' },
+            { value: 'done',         icon: '✓', label: 'Done',           sub: 'Got it across the line' },
+            { value: 'in_progress',  icon: '~',      label: 'In progress',    sub: 'Working on it' },
+            { value: 'didnt_happen', icon: '—', label: "Didn't happen",  sub: 'Tomorrow is a new day' },
         ]
     },
     {
         id: 'note', type: 'textarea',
-        question: 'Anything worth noting?',
-        sub: 'Optional. Patterns, how you\'re feeling, what\'s going on.',
-        placeholder: 'Anything at all...', skippable: true
+        question: 'The real story of today was...',
+        sub: 'Optional. One honest sentence — or more if you need it.',
+        placeholder: 'What actually happened today...', skippable: true
     },
 ];
 
@@ -757,6 +738,143 @@ function initSupabase() {
     return false;
 }
 
+function getLocalEntries() {
+    try { return JSON.parse(localStorage.getItem('local_entries') || '[]'); }
+    catch { return []; }
+}
+
+function setLocalEntries(local) {
+    localStorage.setItem('local_entries', JSON.stringify(local));
+}
+
+function buildSyncableEntry(entry) {
+    const allowedKeys = [
+        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
+        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
+        'weight','water_yesterday','work_intention','body_intention',
+        'focus_quality','focus_note','body_awareness','body_note',
+        'movement','movement_note','work_status','intention_note','note'
+    ];
+    const row = {};
+    allowedKeys.forEach(k => {
+        if (entry[k] !== null && entry[k] !== undefined) row[k] = entry[k];
+    });
+    return row;
+}
+
+function mergeEntries(remoteEntries, localEntries) {
+    const merged = [...(remoteEntries || []), ...(localEntries || [])];
+    merged.sort((a, b) => {
+        const aTime = new Date(a.created_at || (a.entry_date ? a.entry_date + 'T12:00:00' : 0)).getTime();
+        const bTime = new Date(b.created_at || (b.entry_date ? b.entry_date + 'T12:00:00' : 0)).getTime();
+        return bTime - aTime;
+    });
+    return merged;
+}
+
+function markPendingSync(key) {
+    localStorage.setItem(PENDING_SYNC_KEYS[key], String(Date.now()));
+}
+
+function clearPendingSync(key) {
+    localStorage.removeItem(PENDING_SYNC_KEYS[key]);
+}
+
+function hasPendingSync(key) {
+    return !!localStorage.getItem(PENDING_SYNC_KEYS[key]);
+}
+
+function hasOpenOverlay() {
+    const overlays = ['ql-modal', 'spot-modal', 'edit-modal', 'fab-sheet'];
+    return overlays.some(id => document.getElementById(id)?.style.display === 'flex');
+}
+
+function shouldDeferViewRefresh() {
+    return hasOpenOverlay()
+        || submitInProgress
+        || qlFetching
+        || qlSaving
+        || synthesisRunning
+        || fullAnalysisRunning;
+}
+
+function refreshCurrentView() {
+    if (currentView === 'checkin') renderCheckIn();
+    if (currentView === 'insights') renderInsights();
+    if (currentView === 'log') renderLog();
+    if (currentView === 'settings') renderSettings();
+}
+
+async function syncPendingUserData() {
+    if (!sbClient) return;
+
+    if (hasPendingSync('aboutMe')) {
+        const val = localStorage.getItem('about_me') || '';
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'about_me',
+                value: { text: val },
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            clearPendingSync('aboutMe');
+        } catch(e) {
+            console.warn('about_me Supabase sync failed:', e);
+        }
+    }
+
+    if (hasPendingSync('profile')) {
+        const h = localStorage.getItem('profile_height') || null;
+        const sw = localStorage.getItem('profile_start_weight') || null;
+        const gw = localStorage.getItem('profile_goal_weight') || null;
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'profile',
+                value: { height: h, start_weight: sw, goal_weight: gw },
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            clearPendingSync('profile');
+        } catch(e) {
+            console.warn('profile Supabase sync failed:', e);
+        }
+    }
+
+    if (hasPendingSync('healthHistory')) {
+        try {
+            await sbClient.from('user_data').upsert({
+                key: 'health_history',
+                value: getHealthHistory(),
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+            clearPendingSync('healthHistory');
+        } catch(e) {
+            console.warn('health_history Supabase sync failed:', e);
+        }
+    }
+}
+
+async function syncAppState(options = {}) {
+    const { showSuccessToast = false, triggerLocalMigration = true } = options;
+    if (!sbClient || syncInProgress) return false;
+
+    syncInProgress = true;
+    try {
+        await syncPendingUserData();
+        if (triggerLocalMigration) await migrateLocalToSupabase({ silent: true });
+        await loadUserSettings();
+        await loadHealthHistoryFromSupabase();
+        await loadEntries();
+        if (!shouldDeferViewRefresh()) refreshCurrentView();
+        if (showSuccessToast) showToast('Synced ✓');
+        return true;
+    } catch (e) {
+        console.error('Sync failed:', e);
+        if (showSuccessToast) showToast('Sync failed — try again');
+        return false;
+    } finally {
+        syncInProgress = false;
+    }
+}
+
 async function saveEntry(data) {
     const withDate = { ...data, entry_date: todayStr() };
     if (sbClient) {
@@ -773,20 +891,21 @@ async function saveEntry(data) {
         }
     }
     // Fallback: local storage
-    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    const local = getLocalEntries();
     const row = { ...withDate, id: `local_${Date.now()}`, created_at: new Date().toISOString() };
     local.unshift(row);
-    localStorage.setItem('local_entries', JSON.stringify(local));
+    setLocalEntries(local);
     return { data: row };
 }
 
 async function loadEntries() {
+    const local = getLocalEntries();
     if (sbClient) {
         try {
             const { data, error } = await sbClient
                 .from('daily_checkins').select('*')
                 .order('created_at', { ascending: false }).limit(120);
-            if (!error && data) { entries = data; return; }
+            if (!error && data) { entries = mergeEntries(data, local); return; }
             if (error) {
                 console.error('Supabase load error:', error.message);
                 showToast('Could not load from Supabase — showing local data');
@@ -795,7 +914,7 @@ async function loadEntries() {
             console.error('Supabase load exception:', err);
         }
     }
-    entries = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    entries = local;
 }
 
 // ============================================================
@@ -868,13 +987,14 @@ function navigate(view) {
 // ============================================================
 function buildGarminSnap(m) {
     if (!m) return '';
-    if (m.sleep_score == null && m.body_battery == null && m.steps_yesterday == null && !m.weight) return '';
+    if (m.sleep_score == null && m.body_battery == null && m.steps_yesterday == null && !m.weight && m.water_yesterday == null) return '';
 
     let metrics = '';
     if (m.sleep_score != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:#9b7cdb;">' + m.sleep_score + '</div><div class="metric-label">Sleep</div></div>';
     if (m.body_battery != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;">' + m.body_battery + '</div><div class="metric-label">Battery</div></div>';
     if (m.steps_yesterday != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:22px;color:var(--text-2);">' + Number(m.steps_yesterday).toLocaleString() + '</div><div class="metric-label">Steps</div></div>';
     if (m.weight) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:28px;color:var(--positive);">' + m.weight + '</div><div class="metric-label">kg</div></div>';
+    if (m.water_yesterday != null) metrics += '<div class="metric-card" style="flex:1;min-width:70px;"><div class="metric-value" style="font-size:24px;color:#5b9bd5;">' + m.water_yesterday.toLocaleString() + '</div><div class="metric-label">ml water</div></div>';
 
     let hrv = '';
     if (m.hrv_status || m.recovery_advisory) {
@@ -981,6 +1101,12 @@ function buildStep(step, index, total) {
             </div>
         `;
     } else if (step.type === 'options') {
+        const noteField = step.noteId ? `
+            <div id="scale-note-${index}" style="display:none; margin-top:14px;">
+                <input type="text" class="text-input" style="margin-top:0;"
+                    placeholder="${step.notePlaceholder || 'Add context... (optional)'}"
+                    oninput="checkInData['${step.noteId}']=this.value.trim()||null">
+            </div>` : '';
         inputHtml = `
             <div class="option-buttons">
                 ${step.options.map(o => `
@@ -990,6 +1116,7 @@ function buildStep(step, index, total) {
                     </button>
                 `).join('')}
             </div>
+            ${noteField}
             ${step.skippable ? `
             <div class="nav-row" style="margin-top:10px;">
                 <button class="btn btn-ghost" onclick="${isLast ? 'submitCheckIn()' : 'skipAndNext()'}">Skip</button>
@@ -1033,6 +1160,69 @@ function buildStep(step, index, total) {
                 ${step.skippable ? `<button class="btn btn-ghost" onclick="submitCheckIn()">Skip &amp; submit</button>` : ''}
             </div>
         `;
+    } else if (step.type === 'snapshot') {
+        const hrvOpts = [
+            { value: 'poor',     icon: '\u25bc', label: 'Poor' },
+            { value: 'low',      icon: '\u2193', label: 'Low' },
+            { value: 'balanced', icon: '\u2192', label: 'Balanced' },
+            { value: 'good',     icon: '\u2191', label: 'Good' },
+        ];
+        const recovOpts = [
+            { value: 'recover',  icon: '\u25cf', label: 'Recover' },
+            { value: 'maintain', icon: '\u2192', label: 'Maintain' },
+            { value: 'push',     icon: '\u2191', label: 'Push' },
+        ];
+        const nextAction = isLast ? 'submitCheckIn()' : 'nextStep()';
+        inputHtml = `
+            <div class="snapshot-grid">
+                <div class="snapshot-row">
+                    <div class="snapshot-field">
+                        <label class="snapshot-label">Sleep</label>
+                        <input type="number" class="snapshot-input" min="0" max="100" placeholder="0–100" inputmode="decimal"
+                            oninput="checkInData['sleep_score']=this.value.trim()!==''?parseFloat(this.value):null">
+                    </div>
+                    <div class="snapshot-field">
+                        <label class="snapshot-label">Battery</label>
+                        <input type="number" class="snapshot-input" min="0" max="100" placeholder="0–100" inputmode="decimal"
+                            oninput="checkInData['body_battery']=this.value.trim()!==''?parseFloat(this.value):null">
+                    </div>
+                    <div class="snapshot-field">
+                        <label class="snapshot-label">Steps</label>
+                        <input type="number" class="snapshot-input" min="0" placeholder="e.g. 8500" inputmode="decimal"
+                            oninput="checkInData['steps_yesterday']=this.value.trim()!==''?parseFloat(this.value):null">
+                    </div>
+                </div>
+                <div class="snapshot-row">
+                    <div class="snapshot-field">
+                        <label class="snapshot-label">Cycle day</label>
+                        <input type="number" class="snapshot-input" min="1" max="35" placeholder="1–35" inputmode="decimal"
+                            oninput="checkInData['cycle_day']=this.value.trim()!==''?parseFloat(this.value):null">
+                    </div>
+                    <div class="snapshot-field">
+                        <label class="snapshot-label">Water (ml)</label>
+                        <input type="number" class="snapshot-input" min="0" placeholder="e.g. 2000" inputmode="decimal"
+                            oninput="checkInData['water_yesterday']=this.value.trim()!==''?parseFloat(this.value):null">
+                    </div>
+                    <div class="snapshot-field" style="flex:0;min-width:0;"></div>
+                </div>
+                <div class="snapshot-section">
+                    <div class="snapshot-label">HRV status</div>
+                    <div class="snapshot-options">
+                        ${hrvOpts.map(o => `<button class="snapshot-option-btn" onclick="selectSnapshotOption('hrv_status','${o.value}',this)">${o.icon} ${o.label}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="snapshot-section">
+                    <div class="snapshot-label">Recovery advisory</div>
+                    <div class="snapshot-options">
+                        ${recovOpts.map(o => `<button class="snapshot-option-btn" onclick="selectSnapshotOption('recovery_advisory','${o.value}',this)">${o.icon} ${o.label}</button>`).join('')}
+                    </div>
+                </div>
+            </div>
+            <div class="nav-row" style="margin-top:20px;">
+                <button class="btn btn-primary" onclick="${nextAction}">Continue</button>
+                <button class="btn btn-ghost" onclick="skipSnapshot(${isLast})">Skip all</button>
+            </div>
+        `;
     }
 
     return `<div class="step" id="step-${index}"><p class="question-label">${step.question}</p>${step.sub ? `<p class="question-sub">${step.sub}</p>` : ''}${inputHtml}</div>`;
@@ -1040,6 +1230,13 @@ function buildStep(step, index, total) {
 
 function showStep(i) {
     const steps = checkInType === 'morning' ? morningSteps : afternoonSteps;
+    // Auto-skip steps whose condition isn't met (e.g. work_status if no morning intention)
+    if (i < steps.length && steps[i].shouldShow && !steps[i].shouldShow()) {
+        checkInData[steps[i].id] = null;
+        checkInStep = i + 1;
+        if (checkInStep < steps.length) { showStep(checkInStep); return; }
+        else { submitCheckIn(); return; }
+    }
     document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
     const el = document.getElementById(`step-${i}`);
     if (el) {
@@ -1049,6 +1246,20 @@ function showStep(i) {
     }
     const fill = document.getElementById('pfill');
     if (fill) fill.style.width = `${((i + 1) / steps.length) * 100}%`;
+}
+
+function selectSnapshotOption(field, val, btn) {
+    checkInData[field] = val;
+    btn.closest('.snapshot-options').querySelectorAll('.snapshot-option-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+}
+
+function skipSnapshot(isLast) {
+    ['sleep_score','body_battery','steps_yesterday','cycle_day','water_yesterday','hrv_status','recovery_advisory'].forEach(k => {
+        checkInData[k] = null;
+    });
+    if (isLast) submitCheckIn();
+    else nextStep();
 }
 
 function selectScale(field, val, btn, stepIdx, isLast) {
@@ -1067,16 +1278,30 @@ function selectScale(field, val, btn, stepIdx, isLast) {
 }
 
 function selectOption(field, val, btn, stepIdx, isLast) {
+    const steps = checkInType === 'morning' ? morningSteps : afternoonSteps;
+    const step = steps[stepIdx];
     checkInData[field] = val;
     btn.closest('.option-buttons').querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
-    setTimeout(() => {
-        if (!isLast) nextStep();
-        else {
-            const nb = document.getElementById(`nbtn-${stepIdx}`);
-            if (nb) nb.style.display = 'flex';
-        }
-    }, 320);
+    // If step has a note field, reveal it and show Continue — don't auto-advance
+    const noteEl = document.getElementById(`scale-note-${stepIdx}`);
+    if (noteEl) {
+        noteEl.style.display = 'block';
+        const inp = noteEl.querySelector('input');
+        if (inp) setTimeout(() => inp.focus(), 120);
+    }
+    if (step && step.noteId) {
+        const nb = document.getElementById(`nbtn-${stepIdx}`);
+        if (nb) nb.style.display = 'flex';
+    } else {
+        setTimeout(() => {
+            if (!isLast) nextStep();
+            else {
+                const nb = document.getElementById(`nbtn-${stepIdx}`);
+                if (nb) nb.style.display = 'flex';
+            }
+        }, 320);
+    }
 }
 
 function nextStep() {
@@ -1161,12 +1386,12 @@ function renderComplete(d) {
                     <div style="font-size:13px;font-weight:600;color:${phase.color};line-height:1;padding-top:8px;">${phase.name}</div>
                 </div>` : ''}
             </div>
-            ${(d.sleep_score != null || d.body_battery != null || d.steps_yesterday != null || d.weight) ? `
+            ${(d.sleep_score != null || d.body_battery != null || d.steps_yesterday != null || d.weight || d.water_yesterday != null) ? `
             <div style="display:flex;gap:20px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border);">
                 ${d.sleep_score != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Sleep</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:#9b7cdb;line-height:1;">${d.sleep_score}</div></div>` : ''}
                 ${d.body_battery != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Battery</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--accent);line-height:1;">${d.body_battery}</div></div>` : ''}
                 ${d.steps_yesterday != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Steps</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--text-2);line-height:1;">${Number(d.steps_yesterday).toLocaleString()}</div></div>` : ''}
-                ${d.weight ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Weight</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--positive);line-height:1;">${d.weight}kg</div></div>` : ''}
+                ${d.weight ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Weight</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:var(--positive);line-height:1;">${d.weight}kg</div></div>` : ''}${d.water_yesterday != null ? `<div><div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;">Water</div><div style="font-family:var(--font-display);font-size:28px;font-weight:300;color:#5b9bd5;line-height:1;">${Number(d.water_yesterday).toLocaleString()}ml</div></div>` : ''}
             </div>` : ''}
             ${d.work_intention ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:3px;">Work intention</div><div style="font-size:14px;font-style:italic;">"${esc(d.work_intention)}"</div>` : ''}
             ${d.body_awareness ? `<div style="font-size:13px;color:var(--text-2);margin-top:10px;">${bodyLabels[d.body_awareness]||d.body_awareness}</div>` : ''}
@@ -1212,6 +1437,11 @@ async function getCheckInObservation(d) {
         if (e.work_status) parts.push(`work:${e.work_status}`);
         if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
         if (e.weight) parts.push(`weight:${e.weight}kg`);
+        if (e.water_yesterday != null) parts.push(`water:${e.water_yesterday}ml`);
+        if (e.focus_note) parts.push(`focus note:"${e.focus_note}"`);
+        if (e.body_note) parts.push(`food note:"${e.body_note}"`);
+        if (e.movement_note) parts.push(`movement note:"${e.movement_note}"`);
+        if (e.intention_note) parts.push(`intention note:"${e.intention_note}"`);
         return parts.join(' ');
     }).join('\n');
 
@@ -1604,6 +1834,7 @@ function buildLogEntry(e) {
                 ${e.steps_yesterday ? `<div class="me-stat"><span>Steps</span><strong style="color:var(--text-2);">${Number(e.steps_yesterday).toLocaleString()}</strong></div>` : ''}
                 ${e.weight ? `<div class="me-stat"><span>Weight</span><strong style="color:var(--positive);">${e.weight}kg</strong></div>` : ''}
                 ${e.hrv_status ? `<div class="me-stat"><span>HRV</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${esc(e.hrv_status)}</strong></div>` : ''}
+                ${e.water_yesterday != null ? `<div class="me-stat"><span>Water</span><strong style="color:#5b9bd5;">${Number(e.water_yesterday).toLocaleString()}ml</strong></div>` : ''}
                 ${e.recovery_advisory ? `<div class="me-stat"><span>Recovery</span><strong style="color:var(--text-2);font-size:13px;font-family:var(--font-body);">${esc(e.recovery_advisory)}</strong></div>` : ''}
             </div>` : ''}
             <div class="me-row">
@@ -1757,34 +1988,20 @@ function renderSettings() {
     renderHealthHistoryCurrent();
 }
 
-async function migrateLocalToSupabase() {
+async function migrateLocalToSupabase(options = {}) {
+    const { silent = false } = options;
     if (!sbClient) return;
-    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    const local = getLocalEntries();
     if (!local.length) return;
 
-    showToast('Uploading ' + local.length + ' local entries to Supabase…');
-
-    // Only include columns the schema actually has; drop local-only fields
-    const allowedKeys = [
-        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
-        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
-        'weight','work_intention','body_intention','focus_quality','body_awareness',
-        'movement','work_status','note'
-    ];
-
-    const toInsert = local.map(e => {
-        const row = {};
-        allowedKeys.forEach(k => {
-            // Only include the key if it has an actual value (skip null/undefined)
-            if (e[k] !== null && e[k] !== undefined) row[k] = e[k];
-        });
-        return row;
-    });
+    if (!silent) showToast('Uploading ' + local.length + ' local entries to Supabase…');
 
     // Insert one at a time so a single bad entry doesn't block the rest
     let uploaded = 0;
     let lastError = '';
-    for (const row of toInsert) {
+    const remainingLocal = [];
+    for (const entry of local) {
+        const row = buildSyncableEntry(entry);
         try {
             const { error } = await sbClient.from('daily_checkins').insert([row]);
             if (!error) {
@@ -1792,36 +2009,50 @@ async function migrateLocalToSupabase() {
             } else {
                 lastError = error.message;
                 console.error('Migration row error:', error.message, row);
+                remainingLocal.push(entry);
             }
         } catch(err) {
             lastError = String(err);
             console.error('Migration row exception:', err);
+            remainingLocal.push(entry);
         }
     }
 
     if (uploaded > 0) {
-        localStorage.removeItem('local_entries');
-        showToast(uploaded + ' of ' + local.length + ' entries synced ✓');
+        if (remainingLocal.length) setLocalEntries(remainingLocal);
+        else localStorage.removeItem('local_entries');
+        if (!silent) {
+            const msg = remainingLocal.length
+                ? `${uploaded} synced, ${remainingLocal.length} kept locally`
+                : `${uploaded} of ${local.length} entries synced ✓`;
+            showToast(msg);
+        }
     } else if (lastError) {
-        showToast('Sync failed: ' + lastError.slice(0, 60));
+        if (!silent) showToast('Sync failed: ' + lastError.slice(0, 60));
     }
+
+    return { uploaded, failed: remainingLocal.length };
 }
 
-function saveSupabaseConfig() {
+async function saveSupabaseConfig() {
     const url = document.getElementById('sb-url').value.trim();
     const key = document.getElementById('sb-key').value.trim();
     if (!url || !key) { showToast('Enter both URL and key'); return; }
     localStorage.setItem('sb_url', url);
     localStorage.setItem('sb_key', key);
     if (initSupabase()) {
-        // Migrate any locally-stored entries up to Supabase first, then reload
-        migrateLocalToSupabase().then(() => {
-            loadEntries().then(() => {
-                renderSettings();
-                if (currentView === 'checkin') renderCheckIn();
-                if (currentView === 'log') renderLog();
-            });
-        });
+        const valid = await validateSupabaseConnection();
+        if (!valid) {
+            sbClient = null;
+            localStorage.removeItem('sb_url');
+            localStorage.removeItem('sb_key');
+            showToast('Could not connect â€” check your details and run setup.sql');
+            renderSettings();
+            return;
+        }
+        await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
+        renderSettings();
+        if (!shouldDeferViewRefresh()) refreshCurrentView();
     } else {
         showToast('Could not connect — check your details');
     }
@@ -1831,17 +2062,25 @@ async function requestNotifications() {
     if (!('Notification' in window)) { showToast('Not supported in this browser'); return; }
     const perm = await Notification.requestPermission();
     if (perm === 'granted') {
-        scheduleNotifications();
-        showToast('Notifications enabled ✓');
+        const scheduled = await scheduleNotifications();
+        showToast(scheduled ? 'Notifications enabled ✓' : 'Notifications enabled — will start shortly');
         renderSettings();
     } else {
         showToast('Permission denied — check your browser settings');
     }
 }
 
-function scheduleNotifications() {
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: 'SCHEDULE' });
+async function scheduleNotifications() {
+    if (!('serviceWorker' in navigator)) return false;
+    try {
+        const registration = await navigator.serviceWorker.ready;
+        const worker = navigator.serviceWorker.controller || registration.active || registration.waiting || registration.installing;
+        if (!worker) return false;
+        worker.postMessage({ type: 'SCHEDULE' });
+        return true;
+    } catch (e) {
+        console.warn('Could not schedule notifications:', e);
+        return false;
     }
 }
 
@@ -1856,8 +2095,8 @@ async function exportData() {
             showToast('Export failed — try again');
             return;
         }
-        dataToExport = JSON.stringify(data, null, 2);
-        showToast('Exporting from Supabase...');
+        dataToExport = JSON.stringify(mergeEntries(data, getLocalEntries()), null, 2);
+        showToast('Exporting Supabase + local data...');
     } else {
         dataToExport = localStorage.getItem('local_entries') || '[]';
         showToast('Exporting local data...');
@@ -1875,20 +2114,39 @@ async function exportData() {
 }
 
 function clearLocal() {
-    if (confirm('Clear locally stored entries? Data already synced to Supabase is not affected.')) {
+    const local = getLocalEntries();
+    if (!local.length) { showToast('No local data to clear'); return; }
+
+    const msg = sbClient
+        ? `Clear ${local.length} locally stored entr${local.length === 1 ? 'y' : 'ies'} from this device? Only do this if you're sure they have already synced to Supabase.`
+        : `Clear ${local.length} locally stored entr${local.length === 1 ? 'y' : 'ies'} from this device? This cannot be undone.`;
+
+    if (confirm(msg)) {
         localStorage.removeItem('local_entries');
         if (sbClient) {
             loadEntries().then(() => {
-                if (currentView === 'log') renderLog();
-                if (currentView === 'checkin') renderCheckIn();
+                if (!shouldDeferViewRefresh()) refreshCurrentView();
             });
             showToast('Local data cleared — reloading from Supabase');
         } else {
             entries = [];
             showToast('Local data cleared');
-            if (currentView === 'log') renderLog();
-            if (currentView === 'checkin') renderCheckIn();
+            if (!shouldDeferViewRefresh()) refreshCurrentView();
         }
+    }
+}
+
+async function validateSupabaseConnection() {
+    if (!sbClient) return false;
+    try {
+        const { error } = await sbClient
+            .from('daily_checkins')
+            .select('id')
+            .limit(1);
+        return !error;
+    } catch (e) {
+        console.warn('Supabase validation failed:', e);
+        return false;
     }
 }
 
@@ -1897,63 +2155,19 @@ function clearLocal() {
 // ============================================================
 async function uploadLocalToSupabase() {
     if (!sbClient) { showToast('Connect Supabase first'); return; }
-    const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+    const local = getLocalEntries();
     if (!local.length) { showToast('No local entries to upload'); return; }
 
     const btn = document.getElementById('upload-local-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
-
-    let uploaded = 0;
-    let skipped = 0;
-    const errors = [];
-
-    // Same allowed columns as migrateLocalToSupabase — strips nulls so NOT NULL columns don't fail
-    const allowedKeys = [
-        'entry_date','type','cycle_day','mood','mood_note','energy','energy_note',
-        'sleep_score','body_battery','hrv_status','recovery_advisory','steps_yesterday',
-        'weight','work_intention','body_intention','focus_quality','body_awareness',
-        'movement','work_status','note'
-    ];
-
-    for (const entry of local) {
-        // Strip local_ id and created_at; only send schema columns with non-null values
-        const toInsert = {};
-        allowedKeys.forEach(k => {
-            if (entry[k] !== null && entry[k] !== undefined) toInsert[k] = entry[k];
-        });
-
-        try {
-            const { error } = await sbClient.from('daily_checkins').insert([toInsert]);
-            if (error) {
-                // Skip duplicates gracefully (unique constraint violations)
-                if (error.code === '23505') { skipped++; }
-                else { errors.push(error.message); }
-            } else {
-                uploaded++;
-            }
-        } catch(e) {
-            errors.push(e.message);
-        }
+    try {
+        await migrateLocalToSupabase({ silent: false });
+        await loadEntries();
+        if (!shouldDeferViewRefresh()) refreshCurrentView();
+        renderSettings();
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Upload'; }
     }
-
-    if (btn) { btn.disabled = false; btn.textContent = 'Upload'; }
-
-    if (errors.length) {
-        showToast(`${uploaded} uploaded, ${errors.length} failed`);
-        console.error('Upload errors:', errors);
-        return;
-    }
-
-    const msg = skipped
-        ? `${uploaded} uploaded, ${skipped} already existed`
-        : `${uploaded} entries uploaded ✓`;
-    showToast(msg);
-
-    // Reload from Supabase so everything is now visible
-    await loadEntries();
-    if (currentView === 'log') renderLog();
-    if (currentView === 'checkin') renderCheckIn();
-    renderSettings();
 }
 
 // ============================================================
@@ -1964,8 +2178,8 @@ async function deleteEntry(id) {
     if (!confirm('Delete this entry?')) return;
 
     if (id.startsWith('local_') || id.startsWith('saved_')) {
-        const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
-        localStorage.setItem('local_entries', JSON.stringify(local.filter(e => e.id !== id)));
+        const local = getLocalEntries();
+        setLocalEntries(local.filter(e => e.id !== id));
     } else if (sbClient) {
         const { error } = await sbClient.from('daily_checkins').delete().eq('id', id);
         if (error) { showToast('Could not delete — try again'); return; }
@@ -2016,6 +2230,11 @@ async function runWeeklySynthesis() {
         if (e.recovery_advisory) parts.push(`recovery:${e.recovery_advisory}`);
         if (e.steps_yesterday != null) parts.push(`steps:${e.steps_yesterday}`);
         if (e.weight) parts.push(`weight:${e.weight}kg`);
+        if (e.water_yesterday != null) parts.push(`water:${e.water_yesterday}ml`);
+        if (e.focus_note) parts.push(`focus note:"${e.focus_note}"`);
+        if (e.body_note) parts.push(`food note:"${e.body_note}"`);
+        if (e.movement_note) parts.push(`movement note:"${e.movement_note}"`);
+        if (e.intention_note) parts.push(`intention note:"${e.intention_note}"`);
         if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
         if (e.note) parts.push(`note:"${e.note}"`);
         return parts.join(' ');
@@ -2120,6 +2339,11 @@ async function runFullAnalysis() {
         if (e.recovery_advisory) parts.push(`recovery:${e.recovery_advisory}`);
         if (e.steps_yesterday != null) parts.push(`steps:${e.steps_yesterday}`);
         if (e.weight) parts.push(`weight:${e.weight}kg`);
+        if (e.water_yesterday != null) parts.push(`water:${e.water_yesterday}ml`);
+        if (e.focus_note) parts.push(`focus note:"${e.focus_note}"`);
+        if (e.body_note) parts.push(`food note:"${e.body_note}"`);
+        if (e.movement_note) parts.push(`movement note:"${e.movement_note}"`);
+        if (e.intention_note) parts.push(`intention note:"${e.intention_note}"`);
         if (e.cycle_day) parts.push(`cycle_day:${e.cycle_day}`);
         if (e.note) parts.push(`note:"${e.note}"`);
         return parts.join(' ');
@@ -2203,6 +2427,7 @@ function getHealthHistory() {
 async function saveHealthHistory(hh) {
     // Always write to localStorage first (instant, offline-safe)
     localStorage.setItem('health_history', JSON.stringify(hh));
+    markPendingSync('healthHistory');
     // Also persist to Supabase so other devices see it
     if (sbClient) {
         try {
@@ -2211,6 +2436,7 @@ async function saveHealthHistory(hh) {
                 value: hh,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
+            clearPendingSync('healthHistory');
         } catch(e) {
             console.warn('Health history Supabase sync failed:', e);
         }
@@ -2226,11 +2452,11 @@ async function loadUserSettings() {
             .in('key', ['about_me', 'profile']);
         if (error || !data) return;
         for (const row of data) {
-            if (row.key === 'about_me' && row.value?.text !== undefined) {
+            if (row.key === 'about_me' && row.value?.text !== undefined && !hasPendingSync('aboutMe')) {
                 localStorage.setItem('about_me', row.value.text);
                 aboutMe = row.value.text;
             }
-            if (row.key === 'profile') {
+            if (row.key === 'profile' && !hasPendingSync('profile')) {
                 const p = row.value || {};
                 if (p.height) localStorage.setItem('profile_height', p.height);
                 else localStorage.removeItem('profile_height');
@@ -2254,6 +2480,7 @@ async function loadHealthHistoryFromSupabase() {
             .eq('key', 'health_history')
             .single();
         if (error || !data) return;
+        if (hasPendingSync('healthHistory')) return;
         // Supabase version wins — it's the source of truth across devices
         localStorage.setItem('health_history', JSON.stringify(data.value));
     } catch(e) {
@@ -2581,12 +2808,7 @@ async function removeHHItem(field, idx) {
 
 async function clearHealthHistory() {
     if (confirm('Clear all stored health history? This cannot be undone.')) {
-        localStorage.removeItem('health_history');
-        if (sbClient) {
-            try {
-                await sbClient.from('user_data').delete().eq('key', 'health_history');
-            } catch(e) { console.warn('Could not clear from Supabase:', e); }
-        }
+        await saveHealthHistory({});
         renderHealthHistoryCurrent();
         showToast('Health history cleared');
     }
@@ -2691,6 +2913,7 @@ async function saveAboutMe() {
     const val = document.getElementById('about-me-input').value.trim();
     aboutMe = val;
     localStorage.setItem('about_me', val);
+    markPendingSync('aboutMe');
     if (sbClient) {
         try {
             await sbClient.from('user_data').upsert({
@@ -2698,6 +2921,7 @@ async function saveAboutMe() {
                 value: { text: val },
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
+            clearPendingSync('aboutMe');
         } catch(e) { console.warn('about_me Supabase sync failed:', e); }
     }
     showToast('Saved ✓');
@@ -2710,6 +2934,7 @@ async function saveProfile() {
     if (h) localStorage.setItem('profile_height', h); else localStorage.removeItem('profile_height');
     if (sw) localStorage.setItem('profile_start_weight', sw); else localStorage.removeItem('profile_start_weight');
     if (gw) localStorage.setItem('profile_goal_weight', gw); else localStorage.removeItem('profile_goal_weight');
+    markPendingSync('profile');
     if (sbClient) {
         try {
             await sbClient.from('user_data').upsert({
@@ -2717,6 +2942,7 @@ async function saveProfile() {
                 value: { height: h || null, start_weight: sw || null, goal_weight: gw || null },
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' });
+            clearPendingSync('profile');
         } catch(e) { console.warn('profile Supabase sync failed:', e); }
     }
     showToast('Profile saved ✓');
@@ -2978,6 +3204,7 @@ function buildQLSystemPrompt() {
         if (e.body_awareness) parts.push(`food: ${e.body_awareness}`);
         if (e.movement) parts.push(`movement: ${e.movement}`);
         if (e.note) parts.push(`note: "${e.note}"`);
+        if (e.water_yesterday != null) parts.push(`water: ${e.water_yesterday}ml`);
         return parts.join(', ');
     }).join('\n');
 
@@ -3088,10 +3315,10 @@ async function saveQuickLog() {
             console.error('Supabase quicklog save error:', error?.message);
         }
         // Fallback or non-Supabase path
-        const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+        const local = getLocalEntries();
         const localRow = { ...entry, id: `local_${Date.now()}`, created_at: new Date().toISOString() };
         local.unshift(localRow);
-        localStorage.setItem('local_entries', JSON.stringify(local));
+        setLocalEntries(local);
         entries.unshift(localRow);
     } catch(e) {
         console.error('Save error:', e);
@@ -3253,6 +3480,7 @@ function renderEditModal(e) {
             {v:'',l:'(skip)'},{v:'recover',l:'Recover'},{v:'maintain',l:'Maintain'},{v:'push',l:'Push'}]);
         h += numField('Steps yesterday', 'steps_yesterday', e.steps_yesterday, 0, null);
         h += numField('Weight (kg)', 'weight', e.weight, 30, 300);
+        h += numField('Water yesterday (ml)', 'water_yesterday', e.water_yesterday, 0, null);
     }
 
     h += scaleField('Mood', 'mood', e.mood);
@@ -3273,6 +3501,10 @@ function renderEditModal(e) {
             {v:'',l:'(skip)'},{v:'checked_in',l:'Checked in'},{v:'drifted',l:'Drifted'},{v:'autopilot',l:'Autopilot'}]);
         h += selField('Movement', 'movement', e.movement, [
             {v:'',l:'(skip)'},{v:'yes',l:'Yes, properly'},{v:'a_bit',l:'A bit'},{v:'no',l:'Not today'}]);
+        h += textField('Focus note', 'focus_note', e.focus_note);
+        h += textField('Food note', 'body_note', e.body_note);
+        h += textField('Movement note', 'movement_note', e.movement_note);
+        h += textField('Intention note', 'intention_note', e.intention_note);
         h += selField('Work status', 'work_status', e.work_status, [
             {v:'',l:'(skip)'},{v:'done',l:'Done'},{v:'in_progress',l:'In progress'},{v:'didnt_happen',l:"Didn't happen"}]);
         h += textareaField('Notes', 'note', e.note);
@@ -3295,11 +3527,11 @@ async function saveEditedEntry() {
 
     try {
         if (editingId.startsWith('local_') || editingId.startsWith('saved_')) {
-            const local = JSON.parse(localStorage.getItem('local_entries') || '[]');
+            const local = getLocalEntries();
             const idx = local.findIndex(e => e.id === editingId);
             if (idx !== -1) {
                 local[idx] = { ...local[idx], ...toSave };
-                localStorage.setItem('local_entries', JSON.stringify(local));
+                setLocalEntries(local);
             } else {
                 showToast('Entry not found in local storage');
                 if (btn) btn.disabled = false;
@@ -3338,39 +3570,26 @@ async function init() {
     }
     initSupabase();
     aboutMe = localStorage.getItem('about_me') || '';
-    // If Supabase is already connected, silently migrate any leftover local entries
-    if (sbClient) await migrateLocalToSupabase();
-    await loadUserSettings();
-    await loadHealthHistoryFromSupabase();
-    await loadEntries();
+    if (sbClient) await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
+    else await loadEntries();
     renderCheckIn();
-    if (Notification?.permission === 'granted') setTimeout(scheduleNotifications, 1000);
+    if (Notification?.permission === 'granted') setTimeout(() => { scheduleNotifications(); }, 1000);
 }
 
 async function syncNow(btn) {
     if (!sbClient) return;
     if (btn) { btn.textContent = '↻ Syncing...'; btn.disabled = true; }
-    await loadUserSettings();
-    await loadHealthHistoryFromSupabase();
-    await loadEntries();
-    if (currentView === 'checkin') renderCheckIn();
-    if (currentView === 'insights') renderInsights();
-    if (currentView === 'log') renderLog();
-    if (currentView === 'settings') renderSettings();
-    showToast('Synced ✓');
+    try {
+        await syncAppState({ showSuccessToast: true, triggerLocalMigration: true });
+    } finally {
+        if (btn) { btn.textContent = '↻ Sync from Supabase'; btn.disabled = false; }
+    }
 }
 
 // Re-sync from Supabase when app comes back to foreground (tab/app switch)
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible' && sbClient) {
-        await loadUserSettings();
-        await loadHealthHistoryFromSupabase();
-        await loadEntries();
-        // Re-render whichever view is active so new data shows immediately
-        if (currentView === 'checkin') renderCheckIn();
-        if (currentView === 'insights') renderInsights();
-        if (currentView === 'log') renderLog();
-        if (currentView === 'settings') renderSettings();
+        await syncAppState({ showSuccessToast: false, triggerLocalMigration: true });
     }
 });
 
